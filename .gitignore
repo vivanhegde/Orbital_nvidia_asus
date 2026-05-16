@@ -7,8 +7,12 @@
 *.swp
 *.swo
 
-# SQLite operator DB (generated; do not commit)
+# SQLite operator DB (generated; do not commit). The -wal and -shm sidecars
+# appear when WAL journaling is enabled (orbital_persist/db.py).
 orbital_data/orbital.db
+orbital_data/orbital.db-wal
+orbital_data/orbital.db-shm
+orbital_data/orbital.db-journal
 
 # Environment variables
 .env

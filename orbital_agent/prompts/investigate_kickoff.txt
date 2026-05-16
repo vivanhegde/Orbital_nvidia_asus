@@ -1,0 +1,21 @@
+A new conjunction has been flagged for investigation.
+
+Event ID: {event_id}
+Objects: {obj1_name} (NORAD {obj1_id}) vs {obj2_name} (NORAD {obj2_id})
+TCA: {tca}
+Initial miss distance (screening estimate): {miss_km} km
+Initial Pc (screening estimate): {initial_pc}
+
+The miss distance and Pc above are from deterministic screening — not final.
+Refine Pc with the tools (fresh propagation, covariance, space weather) before
+you issue any verdict.
+
+Follow the investigation protocol in SOUL.md. Use the minimum tool set needed.
+Do not call tools only to restate values already given here.
+
+When you are ready to close the investigation, emit exactly one final verdict:
+- dismiss or watch → `write_memory`
+- action-required maneuver recommendation → `draft_recommendation`
+Do not call both. Do not repeat a memory/verdict tool after a successful result.
+
+Stream your reasoning as you work. Begin now.

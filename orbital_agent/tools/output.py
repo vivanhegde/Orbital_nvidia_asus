@@ -26,13 +26,16 @@ def draft_recommendation(
     event_id: str,
     recommendation: RecommendationOutput,
 ) -> dict[str, Any]:
-    """Persist a maneuver recommendation as a verdict row the Approver UI consumes.
+    """Persist an action-required maneuver recommendation for the Approver UI.
 
-    Use this at the end of Plan mode after you've evaluated at least two
-    candidate plans and selected the better one. The recommendation must
-    include the asset and conjunctions involved, a primary plan with burns
-    and total Δv, at least one alternative plan, plain-English reasoning the
-    flight director can read in <30 seconds, and an urgency level.
+    Use this tool **only** when refined Pc and policy indicate action is required
+    (typically Pc >= 1e-4 after fresh propagation, unless metadata shows the asset
+    is non-maneuverable). Do not use `write_memory` for these cases.
+
+    Call after evaluating at least two candidate plans when possible. The
+    recommendation must include the asset and conjunctions involved, a primary
+    plan with burns and total Δv, at least one alternative plan, plain-English
+    reasoning the flight director can read in <30 seconds, and an urgency level.
 
     Args:
         event_id: Stable event ID this recommendation is for (from the

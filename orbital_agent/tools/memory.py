@@ -97,18 +97,17 @@ def write_memory(
     reasoning: str,
     plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persist a verdict (dismiss / watch / recommended) for an event.
+    """Persist a dismiss or watch verdict for an event.
 
-    The agent calls this at the end of every Investigate cycle. For dismiss
-    and watch verdicts, `plan` is null. For recommended verdicts, `plan` is
-    the full RecommendationOutput shape (primary + alternatives + reasoning
-    + urgency) which the Approver UI consumes.
+    Use this tool **only** for non-action outcomes: `verdict_type` must be
+    `"dismissed"` or `"watch"`. Do not use this for maneuver recommendations —
+    call `draft_recommendation` instead when refined Pc meets the action threshold.
 
     Args:
         event_id: Stable event ID from conjunction_events
-        verdict_type: One of "dismissed", "watch", "recommended"
+        verdict_type: `"dismissed"` or `"watch"` only
         reasoning: Plain-English explanation a flight director can read in <30s
-        plan: For "recommended" verdicts, the full plan JSON. Else null.
+        plan: Must be null for dismiss/watch verdicts
 
     Returns:
         {verdict_id, event_id, verdict_type, issued_at}

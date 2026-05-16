@@ -215,6 +215,9 @@ def main(argv: list[str] | None = None) -> int:  # convenience for `python -m or
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Quiet httpx's per-request INFO logs — the forwarder posts dozens of
+    # events per investigation and the noise drowns out real runner output.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     config = load_config()
     return asyncio.run(run_async(config))
 

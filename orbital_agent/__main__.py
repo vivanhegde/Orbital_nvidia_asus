@@ -24,6 +24,9 @@ def _setup_logging(level: str) -> None:
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Quiet httpx's per-request INFO logs — the forwarder posts dozens of
+    # events per investigation and the noise drowns out real agent output.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def _check_ollama(config: AgentConfig) -> tuple[bool, str]:

@@ -44,7 +44,9 @@ function formatContent(ev: AgentEvent): string {
  * or null if no boxed answer is present.
  */
 function extractBoxedAnswer(content: string): string | null {
-  const m = content.match(/\\boxed\{([^}]+)\}/);
+  // Match \boxed{X} or \\boxed{X} (hedging against escaping along the pipeline)
+  // and also a bare boxed{X} that some models emit when LaTeX intent is lost.
+  const m = content.match(/\\{1,2}boxed\{([^}]+)\}/);
   if (!m || m[1] === undefined) return null;
   return m[1].trim();
 }

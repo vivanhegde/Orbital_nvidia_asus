@@ -171,6 +171,34 @@ export interface SyntheticPlanPayload {
   plans: Record<string, ManeuverPlanOption>;
 }
 
+export interface ObjectProfile {
+  norad_id: number;
+  name: string | null;
+  country?: string;
+  object_type?: string;
+  launch_date?: string | null;
+  inclination_deg?: number;
+  period_min?: number;
+  is_maneuverable: boolean | null;
+  fuel_remaining_mps: number | null;
+  mission_criticality: string | null;
+  operator: string | null;
+}
+
+export interface RefinementData {
+  covariance_inflation: number;
+  kp_index: number | null;
+}
+
+export interface AssetHistoryEntry {
+  event_id: string;
+  obj1_name: string;
+  obj2_name: string;
+  tca: string;
+  initial_pc: number;
+  status: string;
+}
+
 export interface VerdictEnriched {
   verdict_id: string;
   event_id: string;
@@ -187,9 +215,18 @@ export interface VerdictEnriched {
     obj1_norad_id: number;
     obj2_norad_id: number;
     tca: string;
+    miss_distance_km?: number;
+    relative_velocity_km_s?: number;
+    initial_pc?: number;
+    first_detected_at?: string;
   };
   current_pc?: number;
   current_miss_km?: number;
+  obj1_profile?: ObjectProfile;
+  obj2_profile?: ObjectProfile;
+  space_weather?: SpaceWeather | null;
+  refinement?: RefinementData;
+  asset_history?: AssetHistoryEntry[];
 }
 
 export interface PendingVerdictsResponse {

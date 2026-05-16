@@ -1,8 +1,9 @@
 """Entrypoint: `python -m orbital_agent`.
 
-Supports two modes for now:
-  --smoke   Run the day-0 integration smoke test (Ollama + OpenClaw reachability)
-  --run     Run the agent sidecar loop (Feature 4 will fill this in)
+Modes:
+  --smoke                       Day-0 reachability smoke test
+  --investigate <event_id>      Run one full investigation through OpenClaw
+  --run                         Long-running sidecar loop (Feature 4)
 """
 
 from __future__ import annotations
@@ -101,11 +102,32 @@ async def cmd_run(config: AgentConfig) -> int:
     return 2
 
 
+def cmd_investigate(config: AgentConfig, event_id: str) -> int:
+    """Run one full investigation against the orbital agent."""
+    from orbital_agent.kickoff import send_kickoff_for_event, summarize
+
+    log = logging.getLogger("orbital_agent.investigate")
+    log.info("Starting investigation for event_id=%s", event_id)
+    try:
+        result = send_kickoff_for_event(event_id, config=config)
+    except (ValueError, RuntimeError) as exc:
+        print(f"[FAIL] {exc}")
+        return 1
+
+    print(summarize(result))
+    return 0 if result.verdict_written else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orbital_agent", description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--smoke", action="store_true", help="Day-0 reachability smoke test")
     mode.add_argument("--run", action="store_true", help="Run the agent sidecar loop")
+    mode.add_argument(
+        "--investigate",
+        metavar="EVENT_ID",
+        help="Run one full investigation for the given conjunction event ID",
+    )
     args = parser.parse_args(argv)
 
     config = load()
@@ -115,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(cmd_smoke(config))
     if args.run:
         return asyncio.run(cmd_run(config))
+    if args.investigate:
+        return cmd_investigate(config, args.investigate)
     return 2
 
 

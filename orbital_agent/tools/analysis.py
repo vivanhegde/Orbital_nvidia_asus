@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from orbital_agent._paths import ensure_repo_on_path
+from orbital_agent.space_weather import covariance_inflation_from_kp
 # No nested Pydantic models in tool signatures — Nemotron Nano struggles to
 # construct them in tool arguments. All tools take flat primitives + arrays of
 # primitives. Internal Pydantic validation still uses RecommendationOutput for
@@ -30,15 +31,6 @@ _LOG = logging.getLogger(__name__)
 # Pc bands (per design doc §4 thresholds)
 PC_THRESHOLD_NOISE = 1e-6
 PC_THRESHOLD_ACTION = 1e-4
-
-
-def covariance_inflation_from_kp(kp: float) -> float:
-    """Inflate position covariance when geomagnetic activity makes drag predictions noisier."""
-    if kp < 5.0:
-        return 1.0
-    if kp < 6.0:
-        return 1.18
-    return 1.4
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:

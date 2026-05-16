@@ -7,9 +7,20 @@ from pathlib import Path
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    """Open SQLite DB with foreign keys enabled."""
+    """Open SQLite DB for safe multi-process access.
+
+    The MCP server, FastAPI's screening worker, and the runner all open
+    their own connections to this same file. Default rollback-journal mode
+    is fragile under that pattern (lock contention can surface as
+    SQLITE_READONLY on some filesystems). WAL mode handles multi-reader +
+    single-writer cleanly with a separate -wal file, and busy_timeout lets
+    writers wait through transient lock contention instead of erroring.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False, timeout=30.0)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")   # safe with WAL, ~3x faster than FULL
+    conn.execute("PRAGMA busy_timeout = 30000")   # 30s — wait through lock contention
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

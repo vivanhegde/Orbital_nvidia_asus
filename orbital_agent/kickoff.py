@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 from datetime import datetime, timezone
@@ -75,14 +76,23 @@ def send_kickoff_cli(
     ]
     # Pass thinking level when the installed CLI supports it.
     cmd_with_thinking = [*cmd, "--thinking", thinking]
-    out = subprocess.run(cmd_with_thinking, capture_output=True, text=True, timeout=timeout_s)
-    if out.returncode != 0 and "--thinking" in out.stderr.lower():
+    try:
+        out = subprocess.run(
+            cmd_with_thinking, capture_output=True, text=True, timeout=timeout_s
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(
+            f"openclaw agent did not finish within {timeout_s:.0f}s. "
+            "Check `openclaw logs --follow` for Ollama timeouts (often 120s per turn) "
+            "or increase OpenClaw agents.defaults.timeoutSeconds. "
+            "Prefer a real event_id from the DB, not CONJ-DEMO-001 (NORAD 99999 has no TLE)."
+        ) from exc
+    if out.returncode != 0 and "--thinking" in (out.stderr or "").lower():
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
     if out.returncode != 0:
         raise RuntimeError(
-            f"openclaw agent failed (exit {out.returncode}): {out.stderr[:500]}"
+            f"openclaw agent failed (exit {out.returncode}): {(out.stderr or '')[:500]}"
         )
-    import json
 
     return json.loads(out.stdout)
 

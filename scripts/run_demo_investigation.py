@@ -3,10 +3,13 @@
 
 From repo root with venv active:
 
-    python scripts/run_demo_investigation.py          # render only
-    python scripts/run_demo_investigation.py --send  # invoke openclaw on Spark
+    python scripts/run_demo_investigation.py
+    python scripts/run_demo_investigation.py --send
+    python scripts/run_demo_investigation.py --send --event-id <id-from-flagged>
 
-Does not start the runner or touch SSE/UI.
+Render-only is instant. --send runs a full OpenClaw investigation (often 5–15+ min;
+may hit 600s Python timeout if Ollama is slow). Prefer --event-id with a real
+screened conjunction, not the built-in demo (NORAD 99999 has no TLE).
 """
 
 from __future__ import annotations
@@ -21,8 +24,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from orbital_agent.config import load as load_config  # noqa: E402
 from orbital_agent.kickoff import build_kickoff, send_kickoff_cli  # noqa: E402
 from orbital_persist.models import ConjunctionEventRecord  # noqa: E402
+from orbital_persist.store import EventStore  # noqa: E402
 
 
 def _demo_event() -> ConjunctionEventRecord:
@@ -44,16 +49,39 @@ def _demo_event() -> ConjunctionEventRecord:
     )
 
 
+def _load_event(event_id: str) -> ConjunctionEventRecord:
+    store = EventStore(load_config().db_path)
+    try:
+        ev = store.get_event(event_id)
+    finally:
+        store.close()
+    if ev is None:
+        raise SystemExit(f"event_id not in DB: {event_id}")
+    return ev
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--send",
         action="store_true",
-        help="Send kickoff via openclaw agent (requires gateway + Ollama on Spark)",
+        help="Send kickoff via openclaw agent (slow; needs gateway + Ollama + MCP)",
+    )
+    parser.add_argument(
+        "--event-id",
+        metavar="ID",
+        help="Use a real conjunction_events row (recommended for --send)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=600.0,
+        help="Max seconds to wait for openclaw agent (default 600)",
     )
     args = parser.parse_args()
 
-    text = build_kickoff(_demo_event())
+    event = _load_event(args.event_id) if args.event_id else _demo_event()
+    text = build_kickoff(event)
 
     if re.search(r"\{[a-z_0-9]+\}", text):
         print("FAIL: kickoff still contains unfilled placeholders", file=sys.stderr)
@@ -64,12 +92,26 @@ def main() -> int:
     print(text)
     print("=== OK: template rendered ===")
 
+    if event.obj2_norad_id == 99999 or event.obj1_norad_id == 99999:
+        print(
+            "NOTE: built-in demo uses NORAD 99999 (no TLE). For --send use "
+            "--event-id from: curl -s http://127.0.0.1:8000/api/conjunctions/flagged",
+            file=sys.stderr,
+        )
+
     if args.send:
-        print("=== Sending via openclaw ===")
-        resp = send_kickoff_cli(_demo_event())
+        print(f"=== Sending via openclaw (timeout {args.timeout:.0f}s) ===", flush=True)
+        print("(watch progress: openclaw logs --follow)", flush=True)
+        try:
+            resp = send_kickoff_cli(event, timeout_s=args.timeout)
+        except TimeoutError as exc:
+            print(f"TIMEOUT: {exc}", file=sys.stderr)
+            return 2
         payloads = (resp.get("result") or {}).get("payloads") or []
         reply = payloads[0].get("text", "") if payloads else resp
-        print("reply:", (str(reply) or "")[:500])
+        print("reply:", (str(reply) or "")[:2000])
+        if not payloads:
+            print("WARN: empty payloads — see openclaw logs for Ollama/agent errors", file=sys.stderr)
 
     return 0
 

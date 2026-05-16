@@ -224,7 +224,7 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
             <span className="text-amber-500 text-[10px] font-bold tracking-widest">PROCESSING</span>
           </div>
         </div>
-        <AgentReasoningStream />
+        <AgentReasoningStream eventId={event.id} />
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
+import { AgentReasoningStream } from "@/components/AgentReasoningStream";
 import { ConjunctionDetailView } from "@/components/ConjunctionDetailView";
 import { ApproverView } from "@/components/ApproverView";
 import { MemoryLogView } from "@/components/MemoryLogView";
@@ -27,14 +28,6 @@ const queryClient = new QueryClient({
     queries: { refetchOnWindowFocus: false, retry: 1 },
   },
 });
-
-const AGENT_LOGS = [
-  { type: "thought", text: "Monitoring 847 objects, 23 in elevated-risk watch, no new flags in last 30 seconds.", time: "14:31:02" },
-  { type: "tool", text: "get_flagged_conjunctions(since=-30s, min_pc=1e-6) → 0 new", time: "14:31:02" },
-  { type: "thought", text: "Monitoring 847 objects, 23 in elevated-risk watch, no new flags in last 30 seconds.", time: "14:30:32" },
-  { type: "tool", text: "get_space_weather() → Kp 4.2, minor storm G1, drag +8%", time: "14:30:00" },
-  { type: "thought", text: "All assets nominal. Next scheduled re-screen in 6 hours for 4 watch-list events.", time: "14:29:30" }
-];
 
 function Dashboard(): React.ReactElement {
   const [showOrbits, setShowOrbits] = React.useState(false);
@@ -403,40 +396,16 @@ function Dashboard(): React.ReactElement {
         </div>
       </div>
 
-      {/* Agent Activity Panel */}
-      <div className="mt-auto border border-mission-border bg-mission-panel rounded-lg flex flex-col overflow-hidden h-[180px]">
+      {/* Agent Activity Panel — live SSE stream from /api/agent/stream */}
+      <div className="mt-auto border border-mission-border bg-mission-panel rounded-lg flex flex-col overflow-hidden h-[220px]">
         <div className="px-[14px] py-[8px] border-b border-mission-border bg-[rgba(255,255,255,0.02)] flex justify-between items-center shrink-0">
           <span>Agent activity</span>
-          <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-500 text-xs font-semibold">IDLE</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-500 text-[10px] font-bold tracking-widest">LIVE</span>
+          </div>
         </div>
-        <div className="flex flex-col p-[14px] py-2 overflow-hidden gap-3">
-          {AGENT_LOGS.map((log, i) => (
-            <div key={i} className="flex gap-3 items-start text-xs">
-              <div className="mt-0.5 shrink-0">
-                {log.type === "thought" ? (
-                  <svg className="w-3.5 h-3.5 text-[#7a9ab0]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                ) : (
-                  <svg className="w-3.5 h-3.5 text-[#f59e0b]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v8l9-11h-7z" />
-                  </svg>
-                )}
-              </div>
-              <div className="flex-1">
-                {log.type === "tool" ? (
-                  <>
-                    <span className="text-amber-500">tool_call: </span>
-                    <span className="text-[#7a9ab0]">{log.text}</span>
-                  </>
-                ) : (
-                  <span className="text-[#c8d6e8]">{log.text}</span>
-                )}
-              </div>
-              <div className="text-[9px] text-[#3a5060] shrink-0">{log.time}</div>
-            </div>
-          ))}
-        </div>
+        <AgentReasoningStream className="flex flex-col gap-1 p-3 bg-[#060b14] text-xs font-mono w-full flex-1 overflow-y-auto" />
       </div>
       
     </div>

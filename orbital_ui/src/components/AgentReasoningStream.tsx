@@ -17,7 +17,8 @@ const TYPE_COLOR: Record<AgentEventType, string> = {
   verdict_drafted: "text-amber-400",
 };
 
-const EMPTY_HINT = "Awaiting agent activity. Start the runner sidecar to see live reasoning.";
+const EMPTY_HINT_GLOBAL = "Awaiting agent activity. Start the runner sidecar to see live reasoning.";
+const EMPTY_HINT_FILTERED = "No reasoning yet for this conjunction. Agent will pick it up when it reaches this event.";
 
 function formatContent(ev: AgentEvent): string {
   if (typeof ev.content === "string") return ev.content;
@@ -43,26 +44,47 @@ function formatTimestamp(iso: string): string {
   }
 }
 
-export function AgentReasoningStream() {
+export interface AgentReasoningStreamProps {
+  /**
+   * If set, only show events whose related_event_id matches. Used by
+   * ConjunctionDetailView to scope the stream to one conjunction. Leave
+   * undefined for the global dashboard panel (shows everything).
+   */
+  eventId?: string;
+  /** Height override; defaults to h-[260px] for the detail view. */
+  className?: string;
+}
+
+export function AgentReasoningStream({ eventId, className }: AgentReasoningStreamProps = {}) {
   const events = useAgentStream();
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+
+  const filtered = React.useMemo(() => {
+    if (!eventId) return events;
+    return events.filter((ev) => ev.related_event_id === eventId);
+  }, [events, eventId]);
 
   // Keep the latest event in view as new ones arrive.
   React.useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [events.length]);
+  }, [filtered.length]);
+
+  const emptyHint = eventId ? EMPTY_HINT_FILTERED : EMPTY_HINT_GLOBAL;
 
   return (
     <div
       ref={scrollerRef}
-      className="flex flex-col gap-1 p-4 bg-[#060b14] rounded-b-lg text-xs font-mono w-full h-[260px] overflow-y-auto"
+      className={
+        className ??
+        "flex flex-col gap-1 p-4 bg-[#060b14] rounded-b-lg text-xs font-mono w-full h-[260px] overflow-y-auto"
+      }
     >
-      {events.length === 0 ? (
-        <span className="text-[#3a5060] italic">{EMPTY_HINT}</span>
+      {filtered.length === 0 ? (
+        <span className="text-[#3a5060] italic">{emptyHint}</span>
       ) : (
-        events.map((ev) => (
+        filtered.map((ev) => (
           <div key={ev._seq} className="flex gap-2 items-start">
             <span className="text-[#3a5060] shrink-0 tabular-nums">
               {formatTimestamp(ev.timestamp)}

@@ -1,13 +1,18 @@
 """MCP server exposing the 11 Orbital domain tools to OpenClaw.
 
-Runs over stdio by default — OpenClaw spawns this process (configured via
-`openclaw mcp set orbital`) and talks to it through stdin/stdout. Tools are
-declared with type hints + docstrings; FastMCP introspects them to publish
-their schemas to the connected agent.
+OpenClaw (this version, 2026.5.12) only accepts MCP servers over `sse` or
+`streamable-http` transports — not `stdio`. So in production the server runs
+as a long-lived HTTP service that OpenClaw connects to over SSE. Stdio mode
+is kept for local MCP-inspector testing.
+
+Tools are declared with type hints + docstrings; FastMCP introspects them
+to publish their schemas to the connected agent.
 
 CLI usage:
-    python -m orbital_agent.mcp_server         # run as stdio server
-    python -m orbital_agent.mcp_server --list  # introspect tools (dev tool)
+    python -m orbital_agent.mcp_server               # SSE on 127.0.0.1:8765 (prod)
+    python -m orbital_agent.mcp_server --transport stdio
+    python -m orbital_agent.mcp_server --transport streamable-http --port 8765
+    python -m orbital_agent.mcp_server --list        # introspect tools, exit
 """
 
 from __future__ import annotations
@@ -248,6 +253,23 @@ def _cli_list() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orbital_agent.mcp_server", description=__doc__)
     parser.add_argument("--list", action="store_true", help="List registered tools and exit")
+    parser.add_argument(
+        "--transport",
+        choices=("sse", "streamable-http", "stdio"),
+        default="sse",
+        help="MCP transport. OpenClaw requires sse or streamable-http; stdio is dev-only.",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address for SSE / streamable-http (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Bind port for SSE / streamable-http (default: 8765, avoiding FastAPI's 8000)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -258,8 +280,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         return _cli_list()
 
-    # Default: stdio MCP server (OpenClaw spawns us with this contract).
-    mcp.run(transport="stdio")
+    if args.transport != "stdio":
+        # FastMCP reads host/port from its Settings object before launching uvicorn.
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        _LOG.info("Starting MCP server (%s) on %s:%d", args.transport, args.host, args.port)
+
+    mcp.run(transport=args.transport)
     return 0
 
 

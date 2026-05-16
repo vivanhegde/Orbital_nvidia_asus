@@ -31,8 +31,8 @@ def _teme_basis_perpendicular(v_hat: np.ndarray) -> tuple[np.ndarray, np.ndarray
 def compute_pc(
     state1: PropagatedState,
     state2: PropagatedState,
-    covariance1_m: float = 100.0,
-    covariance2_m: float = 200.0,
+    covariance1_m: float = 1500.0,
+    covariance2_m: float = 3000.0,
     hard_body_radius_m: float = 5.0,
     covariance_inflation: float = 1.0,
     grid_points: int = 401,

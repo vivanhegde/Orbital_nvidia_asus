@@ -35,7 +35,7 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
   const snaps = pcHistoryQuery.data?.snapshots ?? [];
   const historyPoints = snaps.map((s) => ({
     time: formatUtcAbsolute(s.snapshot_at).slice(5, 16),
-    pc: Math.max(s.pc, 1e-18),
+    pc: Math.max(s.pc, 1e-12),
   }));
 
   const lastSnap = snaps.length > 0 ? snaps[snaps.length - 1] : null;

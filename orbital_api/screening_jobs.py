@@ -128,6 +128,8 @@ def run_screening_job(cache: Any) -> None:
             pc_val = compute_pc(
                 c.obj1_state_at_tca,
                 c.obj2_state_at_tca,
+                covariance1_m=1500.0,
+                covariance2_m=3000.0,
                 covariance_inflation=covariance_inflation,
             )
             band = _pc_band(pc_val)

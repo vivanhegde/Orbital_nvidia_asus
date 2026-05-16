@@ -22,7 +22,13 @@ const EMPTY_HINT_FILTERED = "No reasoning yet for this conjunction. Agent will p
 
 function formatContent(ev: AgentEvent): string {
   if (typeof ev.content === "string") return ev.content;
-  const c = ev.content as { name?: string; args?: string; summary?: string };
+  const c = ev.content as {
+    name?: string;
+    args?: string;
+    summary?: string;
+    verdict_type?: string;
+    source_tool?: string;
+  };
   if (ev.type === "tool_call") {
     return `${c.name ?? "?"}(${c.args ?? ""})`;
   }
@@ -30,9 +36,17 @@ function formatContent(ev: AgentEvent): string {
     return `${c.name ?? "?"} → ${c.summary ?? ""}`;
   }
   if (ev.type === "verdict_drafted") {
-    return `${c.name ?? "draft_recommendation"} fired`;
+    return c.verdict_type ?? "verdict";
   }
   return JSON.stringify(c);
+}
+
+/** Pull a verdict string out of a verdict_drafted event for the FINAL row. */
+function extractVerdict(ev: AgentEvent): string | null {
+  if (ev.type !== "verdict_drafted") return null;
+  if (typeof ev.content === "string") return ev.content;
+  const c = ev.content as { verdict_type?: string };
+  return c.verdict_type ?? null;
 }
 
 /**
@@ -102,8 +116,13 @@ export function AgentReasoningStream({ eventId, className }: AgentReasoningStrea
       ) : (
         filtered.map((ev) => {
           const text = formatContent(ev);
-          const boxed = extractBoxedAnswer(text);
-          if (boxed) {
+          // Two paths produce a FINAL row:
+          //   1. The model explicitly boxes its answer (\boxed{...}) — bonus
+          //      pattern Nemotron uses inconsistently.
+          //   2. The agent calls write_memory or draft_recommendation —
+          //      guaranteed terminal signal, surfaced via verdict_drafted.
+          const verdict = extractVerdict(ev) ?? extractBoxedAnswer(text);
+          if (verdict) {
             return (
               <div
                 key={ev._seq}
@@ -116,12 +135,14 @@ export function AgentReasoningStream({ eventId, className }: AgentReasoningStrea
                   FINAL
                 </span>
                 <div className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-amber-300 font-bold text-sm">
-                    {boxed}
+                  <span className="text-amber-300 font-bold text-sm uppercase">
+                    {verdict}
                   </span>
-                  <span className="text-[#7a9ab0] text-[10px] truncate">
-                    {text.replace(/\\boxed\{[^}]+\}/, "").trim()}
-                  </span>
+                  {ev.type !== "verdict_drafted" && (
+                    <span className="text-[#7a9ab0] text-[10px] truncate">
+                      {text.replace(/\\{1,2}boxed\{[^}]+\}/, "").trim()}
+                    </span>
+                  )}
                 </div>
               </div>
             );

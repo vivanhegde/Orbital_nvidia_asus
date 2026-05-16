@@ -171,10 +171,30 @@ def _normalize(entry: dict[str, Any], related_event_id: str) -> list[dict[str, A
                     "related_event_id": related_event_id,
                     "timestamp": ts,
                 })
-                if name.endswith("draft_recommendation"):
+                # Both write_memory and draft_recommendation terminate an
+                # investigation. Emit a guaranteed FINAL marker so the UI
+                # can render the verdict regardless of whether the model
+                # happens to use \boxed{} convention in its reasoning.
+                short = _strip_prefix(name)
+                if short == "draft_recommendation":
                     out.append({
                         "type": "verdict_drafted",
-                        "content": {"name": name},
+                        "content": {
+                            "verdict_type": "recommended",
+                            "source_tool": name,
+                        },
+                        "related_event_id": related_event_id,
+                        "timestamp": ts,
+                    })
+                elif short == "write_memory":
+                    verdict_type = (args.get("verdict_type")
+                                    if isinstance(args, dict) else None) or "?"
+                    out.append({
+                        "type": "verdict_drafted",
+                        "content": {
+                            "verdict_type": verdict_type,
+                            "source_tool": name,
+                        },
                         "related_event_id": related_event_id,
                         "timestamp": ts,
                     })

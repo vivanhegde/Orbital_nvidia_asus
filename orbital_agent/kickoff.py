@@ -15,8 +15,8 @@ from orbital_agent.config import load as load_config
 _LOG = logging.getLogger(__name__)
 
 _KICKOFF_TEMPLATE = Path(__file__).resolve().parent / "prompts" / "investigate_kickoff.txt"
-# OpenClaw CLI thinking budget when supported (was "high" in early demos).
-_DEFAULT_THINKING_LEVEL = "medium"
+# OpenClaw CLI thinking budget when supported (low for faster Spark runs).
+_DEFAULT_THINKING_LEVEL = "low"
 
 
 def build_kickoff(event: Any) -> str:

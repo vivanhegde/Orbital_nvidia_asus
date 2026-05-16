@@ -27,10 +27,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import uuid
+from pathlib import Path
 from typing import Optional
 
 from orbital_agent._paths import ensure_repo_on_path
 from orbital_agent.config import AgentConfig, load as load_config
+from orbital_agent.forwarder import forward_session_events, predict_session_file_path
 from orbital_agent.heartbeat import HeartbeatLoop
 from orbital_agent.kickoff import send_kickoff_for_event
 from orbital_agent.queue import (
@@ -113,16 +116,35 @@ class Runner:
             "Picked up event %s (attempt %d/%d) (%s vs %s)",
             event_id, attempt, MAX_INVESTIGATION_ATTEMPTS, obj1_name, obj2_name,
         )
+
+        # Pre-generate session_id so we can predict the OpenClaw session file
+        # path and start the forwarder in parallel with the subprocess.
+        session_id = uuid.uuid4().hex
+        session_file = predict_session_file_path(
+            Path.home(), self._config.openclaw_agent_id, session_id
+        )
+        forwarder_stop = asyncio.Event()
+        forwarder_task = asyncio.create_task(
+            forward_session_events(
+                session_file=session_file,
+                api_base_url=self._config.api_base_url,
+                related_event_id=event_id,
+                stop=forwarder_stop,
+            ),
+            name=f"forwarder:{event_id[:8]}",
+        )
+
         result_verdict_written = False
         try:
             # send_kickoff_for_event is blocking (subprocess.run). Run it in
-            # a worker thread so the event loop (and heartbeat coroutine,
-            # which currently skips when active=True) stays responsive.
+            # a worker thread so the event loop (and heartbeat + forwarder
+            # coroutines) stays responsive.
             result = await asyncio.to_thread(
                 send_kickoff_for_event,
                 event_id,
                 config=self._config,
                 store=self._store,
+                session_id=session_id,
             )
             result_verdict_written = result.verdict_written
             _LOG.info(
@@ -158,6 +180,19 @@ class Runner:
                     self._attempts.pop(event_id, None)
                 except Exception as exc:  # noqa: BLE001
                     _LOG.exception("Failed to write auto-dismiss verdict for %s: %s", event_id, exc)
+            # Drain remaining session lines, then stop the forwarder.
+            # 1.0s grace gives the forwarder a chance to pick up the final
+            # tool result / assistant turn OpenClaw wrote just before exit.
+            await asyncio.sleep(1.0)
+            forwarder_stop.set()
+            try:
+                await asyncio.wait_for(forwarder_task, timeout=3.0)
+            except asyncio.TimeoutError:
+                forwarder_task.cancel()
+                try:
+                    await forwarder_task
+                except asyncio.CancelledError:
+                    pass
             self._active = False
             self._active_event_id = None
             mark_done(event_id)

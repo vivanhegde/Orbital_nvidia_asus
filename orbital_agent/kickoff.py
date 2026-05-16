@@ -71,11 +71,15 @@ def send_kickoff_for_event(
     store: EventStore | None = None,
     thinking: str = "high",
     timeout_seconds: int = 600,
+    session_id: str | None = None,
 ) -> InvestigationResult:
     """Run one full investigation for `event_id` through OpenClaw.
 
     Looks the event up in the EventStore, renders the kickoff message, calls
-    the OpenClaw CLI with a fresh session ID, and parses the response.
+    the OpenClaw CLI with the supplied (or freshly-generated) session ID,
+    and parses the response. Callers can pre-generate `session_id` so they
+    know the session file path before the subprocess starts (used by the
+    runner to spawn the SSE forwarder concurrently).
     """
     cfg = config or load_config()
     owned_store = False
@@ -88,7 +92,8 @@ def send_kickoff_for_event(
         if event is None:
             raise ValueError(f"event_id not found in store: {event_id}")
         kickoff_text = build_kickoff(event)
-        session_id = uuid.uuid4().hex
+        if session_id is None:
+            session_id = uuid.uuid4().hex
 
         _LOG.info(
             "Kicking off investigation event_id=%s session=%s agent=%s",

@@ -1,57 +1,81 @@
 import * as React from "react";
+import { useAgentStream, type AgentEvent, type AgentEventType } from "../lib/agentStream";
 
-const STEPS = [
-  "Acknowledged high-risk conjunction event.",
-  "Fetching object metadata and historical maneuvers...",
-  "Querying historical operator decisions for similar pairs...",
-  "Re-propagating orbit trajectories with latest SGP4 TLEs...",
-  "Evaluating atmospheric drag models against current Kp index...",
-  "Computing refined Probability of Collision (Pc)...",
-  "Threshold exceeded. Escalating to URGENT review queue."
-];
+const TYPE_LABEL: Record<AgentEventType, string> = {
+  thought: "thinks",
+  tool_call: "calls",
+  tool_result: "result",
+  heartbeat: "idle",
+  verdict_drafted: "verdict",
+};
+
+const TYPE_COLOR: Record<AgentEventType, string> = {
+  thought: "text-[#7a9ab0]",
+  tool_call: "text-cyan-400",
+  tool_result: "text-emerald-400",
+  heartbeat: "text-[#3a5060]",
+  verdict_drafted: "text-amber-400",
+};
+
+const EMPTY_HINT = "Awaiting agent activity. Start the runner sidecar to see live reasoning.";
+
+function formatContent(ev: AgentEvent): string {
+  if (typeof ev.content === "string") return ev.content;
+  const c = ev.content as { name?: string; args?: string; summary?: string };
+  if (ev.type === "tool_call") {
+    return `${c.name ?? "?"}(${c.args ?? ""})`;
+  }
+  if (ev.type === "tool_result") {
+    return `${c.name ?? "?"} → ${c.summary ?? ""}`;
+  }
+  if (ev.type === "verdict_drafted") {
+    return `${c.name ?? "draft_recommendation"} fired`;
+  }
+  return JSON.stringify(c);
+}
+
+function formatTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour12: false });
+  } catch {
+    return "--:--:--";
+  }
+}
 
 export function AgentReasoningStream() {
-  const [activeStepIndex, setActiveStepIndex] = React.useState(0);
-  const [visibleText, setVisibleText] = React.useState("");
-  
+  const events = useAgentStream();
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+
+  // Keep the latest event in view as new ones arrive.
   React.useEffect(() => {
-    if (activeStepIndex >= STEPS.length) return;
-    
-    const targetText = STEPS[activeStepIndex];
-    if (visibleText === targetText) {
-      const timer = setTimeout(() => {
-        setActiveStepIndex(s => s + 1);
-        setVisibleText("");
-      }, 600);
-      return () => clearTimeout(timer);
-    }
-    
-    const timer = setTimeout(() => {
-      setVisibleText((targetText ?? "").slice(0, visibleText.length + 1));
-    }, 25);
-    
-    return () => clearTimeout(timer);
-  }, [activeStepIndex, visibleText]);
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [events.length]);
 
   return (
-    <div className="flex flex-col gap-2 p-4 bg-[#060b14] rounded-b-lg text-xs font-mono w-full min-h-[180px]">
-      {STEPS.map((step, i) => {
-        if (i > activeStepIndex) return null;
-        const isActive = i === activeStepIndex;
-        const text = isActive ? visibleText : step;
-        
-        return (
-          <div key={i} className={`flex gap-3 transition-opacity duration-300 ${isActive && visibleText.length === 0 ? "opacity-0" : "opacity-100"}`}>
-            <span className="text-[#3a5060] font-bold shrink-0">{i + 1}.</span>
-            <span className={isActive ? "text-amber-400" : "text-[#7a9ab0]"}>
-              {text}
-              {isActive && (
-                <span className="inline-block w-1.5 h-3 bg-amber-400 ml-1 animate-pulse" style={{ verticalAlign: 'baseline', marginBottom: '-2px' }}></span>
-              )}
+    <div
+      ref={scrollerRef}
+      className="flex flex-col gap-1 p-4 bg-[#060b14] rounded-b-lg text-xs font-mono w-full h-[260px] overflow-y-auto"
+    >
+      {events.length === 0 ? (
+        <span className="text-[#3a5060] italic">{EMPTY_HINT}</span>
+      ) : (
+        events.map((ev) => (
+          <div key={ev._seq} className="flex gap-2 items-start">
+            <span className="text-[#3a5060] shrink-0 tabular-nums">
+              {formatTimestamp(ev.timestamp)}
+            </span>
+            <span className={`shrink-0 uppercase ${TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}`}>
+              {TYPE_LABEL[ev.type] ?? ev.type}
+            </span>
+            <span className={TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}>
+              {formatContent(ev)}
             </span>
           </div>
-        );
-      })}
+        ))
+      )}
     </div>
   );
 }

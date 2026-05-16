@@ -17,9 +17,11 @@ for _p in (_OD, _ROOT):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from orbital_api.agent_bus import AgentEventBus
 from orbital_api.cache import screening_cache
 from orbital_api.positions import warm_default_sector_positions
 from orbital_api.routes import (
+    agent_route,
     catalog,
     conjunction_history,
     conjunctions,
@@ -43,6 +45,7 @@ async def lifespan(app: FastAPI):
     event_store = EventStore(_EVENT_DB)
     configure_event_store(event_store)
     app.state.event_store = event_store
+    app.state.agent_bus = AgentEventBus()
     screening_cache.start_worker(60.0)
     threading.Thread(target=warm_default_sector_positions, daemon=True).start()
     yield
@@ -68,6 +71,7 @@ app.include_router(screening_route.router)
 app.include_router(memory_route.router)
 app.include_router(verdicts_route.router)
 app.include_router(dev_route.router)
+app.include_router(agent_route.router)
 
 
 @app.get("/")
@@ -92,6 +96,9 @@ def root() -> dict[str, object]:
             "dev_synthesize": "POST /api/dev/synthesize-verdict",
             "space_weather": "/api/space-weather",
             "screening_refresh": "POST /api/screening/refresh",
+            "agent_stream": "GET /api/agent/stream (SSE)",
+            "agent_event": "POST /api/agent/event",
+            "agent_stats": "GET /api/agent/stats",
         },
         "ui": "Run orbital_ui (npm run dev) at http://localhost:5173 for the dashboard.",
     }

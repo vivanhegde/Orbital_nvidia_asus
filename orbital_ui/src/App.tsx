@@ -37,7 +37,7 @@ const AGENT_LOGS = [
 ];
 
 function Dashboard(): React.ReactElement {
-  const [showOrbits, setShowOrbits] = React.useState(true);
+  const [showOrbits, setShowOrbits] = React.useState(false);
   const [showLabels, setShowLabels] = React.useState(false);
   const [threatsOnly, setThreatsOnly] = React.useState(false);
   const [isPaused, setIsPaused] = React.useState(false);
@@ -284,6 +284,19 @@ function Dashboard(): React.ReactElement {
               {isPaused ? "▶ Play" : "⏸ Pause"}
             </button>
             <div className="w-px h-4 bg-mission-border mx-1"></div>
+            <button
+              className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${threatsOnly ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
+              onClick={() => {
+                const nextThreatsOnly = !threatsOnly;
+                setThreatsOnly(nextThreatsOnly);
+                if (!nextThreatsOnly) {
+                  setShowOrbits(false);
+                  setShowLabels(false);
+                }
+              }}
+            >
+              Threats only
+            </button>
             {threatsOnly && (
               <>
                 <button
@@ -300,19 +313,6 @@ function Dashboard(): React.ReactElement {
                 </button>
               </>
             )}
-            <button
-              className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${threatsOnly ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
-              onClick={() => {
-                const nextThreatsOnly = !threatsOnly;
-                setThreatsOnly(nextThreatsOnly);
-                if (!nextThreatsOnly) {
-                  setShowOrbits(false);
-                  setShowLabels(false);
-                }
-              }}
-            >
-              Threats only
-            </button>
             {lockedEventId && (
               <button
                 className="ml-auto px-3 py-1.5 text-xs border border-green-500/50 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded font-bold transition-colors"

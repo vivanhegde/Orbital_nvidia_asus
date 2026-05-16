@@ -45,7 +45,10 @@ HOURS_TO_TCA = 12
 
 # Acceptance criteria
 MIN_TOOL_CALLS = 3
-MAX_DURATION_SECONDS = 180
+# 600s = the timeout we pass to `openclaw agent`. With --thinking high, full
+# investigations realistically take 4-10 minutes. Cut to ~300 if you drop the
+# thinking level.
+MAX_DURATION_SECONDS = 600
 
 
 def _ensure_scenario_exists() -> str:

@@ -7,7 +7,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from orbital_agent._paths import ensure_repo_on_path
-from orbital_agent.tools._pydantic_models import Burn, DeltaV, ObjectStateInput
+# No nested Pydantic models in tool signatures — Nemotron Nano struggles to
+# construct them in tool arguments. All tools take flat primitives + arrays of
+# primitives. Internal Pydantic validation still uses RecommendationOutput for
+# the persisted plan structure (see output.draft_recommendation).
 
 ensure_repo_on_path()
 
@@ -99,51 +102,65 @@ def re_propagate(
 
 
 def compute_collision_probability(
-    obj1: ObjectStateInput,
-    obj2: ObjectStateInput,
-    covariance_inflation: float | None = None,
+    norad_id_a: int,
+    norad_id_b: int,
+    at_iso: str | None = None,
     kp_index: float | None = None,
+    covariance_inflation: float | None = None,
 ) -> dict[str, Any]:
-    """Compute the probability of collision (Pc) between two propagated states.
+    """Compute the probability of collision (Pc) between two objects at a given time.
 
-    Uses a 2D isotropic-Gaussian integration over a 5 m hard-body disc in the
-    plane perpendicular to relative velocity. Standard 1-σ position uncertainty
-    is 100 m for active payloads and 200 m for unknown/debris.
+    The tool propagates both objects from their TLEs to `at_iso` (defaulting
+    to "now"), then evaluates a 2D isotropic-Gaussian integration over a 5 m
+    hard-body disc in the plane perpendicular to relative velocity. Standard
+    1-σ position uncertainty is 100 m for object A and 200 m for object B.
 
     Args:
-        obj1, obj2: ObjectStateInput with norad_id, r_eci_km, v_eci_kms
-        covariance_inflation: Multiplier on position uncertainty. If None,
-            derived from kp_index via covariance_inflation_from_kp().
-        kp_index: Current Kp; only used when covariance_inflation is None.
+        norad_id_a, norad_id_b: NORAD catalog IDs of the two objects.
+        at_iso: UTC ISO timestamp at which to evaluate the encounter
+            (typically TCA). Defaults to "now".
+        kp_index: Current Kp index. If covariance_inflation is None, the tool
+            derives inflation from this (Kp<5 → 1.0, 5≤Kp<6 → 1.18, Kp≥6 → 1.4).
+        covariance_inflation: Explicit multiplier on position uncertainty.
+            Overrides kp_index-derived inflation if set.
 
     Returns:
         {pc, pc_band ('noise'|'watch'|'action'), miss_distance_km,
-         covariance_inflation_used, hard_body_radius_m}
+         computed_at, covariance_inflation_used, hard_body_radius_m,
+         obj_a_state, obj_b_state}
     """
+    if at_iso:
+        try:
+            when = datetime.fromisoformat(at_iso.replace("Z", "+00:00"))
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return _err(f"at_iso must be ISO-8601 UTC, got: {at_iso}")
+    else:
+        when = datetime.now(timezone.utc)
+
+    tle_a = _find_tle(int(norad_id_a))
+    if tle_a is None:
+        return _err("TLE not found for norad_id_a", norad_id=norad_id_a)
+    tle_b = _find_tle(int(norad_id_b))
+    if tle_b is None:
+        return _err("TLE not found for norad_id_b", norad_id=norad_id_b)
+
+    state_a = propagate(tle_a, when)
+    if state_a.r_eci is None:
+        return _err("propagation failed for norad_id_a", error_code=state_a.error_code)
+    state_b = propagate(tle_b, when)
+    if state_b.r_eci is None:
+        return _err("propagation failed for norad_id_b", error_code=state_b.error_code)
+
     if covariance_inflation is None:
-        if kp_index is None:
-            covariance_inflation = 1.0
-        else:
-            covariance_inflation = covariance_inflation_from_kp(kp_index)
+        covariance_inflation = (
+            1.0 if kp_index is None else covariance_inflation_from_kp(kp_index)
+        )
 
-    s1 = PropagatedState(
-        norad_id=obj1.norad_id,
-        t=datetime.now(timezone.utc),
-        r_eci=(obj1.r_eci_km[0], obj1.r_eci_km[1], obj1.r_eci_km[2]),
-        v_eci=(obj1.v_eci_kms[0], obj1.v_eci_kms[1], obj1.v_eci_kms[2]),
-        error_code=0,
-    )
-    s2 = PropagatedState(
-        norad_id=obj2.norad_id,
-        t=datetime.now(timezone.utc),
-        r_eci=(obj2.r_eci_km[0], obj2.r_eci_km[1], obj2.r_eci_km[2]),
-        v_eci=(obj2.v_eci_kms[0], obj2.v_eci_kms[1], obj2.v_eci_kms[2]),
-        error_code=0,
-    )
-    pc = compute_pc(s1, s2, covariance_inflation=covariance_inflation)
-
+    pc = compute_pc(state_a, state_b, covariance_inflation=covariance_inflation)
     miss_km = (
-        sum((a - b) ** 2 for a, b in zip(obj1.r_eci_km, obj2.r_eci_km)) ** 0.5
+        sum((a - b) ** 2 for a, b in zip(state_a.r_eci, state_b.r_eci)) ** 0.5
     )
 
     if pc < PC_THRESHOLD_NOISE:
@@ -157,8 +174,11 @@ def compute_collision_probability(
         "pc": pc,
         "pc_band": band,
         "miss_distance_km": miss_km,
+        "computed_at": when.astimezone(timezone.utc).isoformat(),
         "covariance_inflation_used": covariance_inflation,
         "hard_body_radius_m": 5.0,
+        "obj_a_state": _state_to_json(state_a),
+        "obj_b_state": _state_to_json(state_b),
     }
 
 
@@ -244,18 +264,24 @@ def simulate_maneuver(
 
 def evaluate_plan(
     asset_norad_id: int,
-    burns: list[Burn],
+    burn_dvs_mps: list[float],
+    burn_directions: list[str],
+    burn_times_iso: list[str],
     miss_threshold_km: float = 1.0,
 ) -> dict[str, Any]:
     """Score a maneuver plan against the asset's currently flagged conjunctions.
 
     For each upcoming conjunction event involving the asset (status='monitoring'),
     predicts the post-burn miss distance and reports whether the burn resolves
-    that event (new miss >= miss_threshold_km).
+    that event (new miss >= miss_threshold_km). The three burn arrays must be
+    the same length; index i across them defines one burn.
 
     Args:
         asset_norad_id: NORAD ID of the maneuvering asset
-        burns: Ordered burn sequence (Δv magnitude + direction + burn_time)
+        burn_dvs_mps: Δv magnitudes in m/s for each burn, in order
+        burn_directions: Direction name for each burn — one of
+            prograde / retrograde / radial / anti-radial / normal / anti-normal
+        burn_times_iso: UTC ISO timestamp for each burn (matching order)
         miss_threshold_km: Minimum acceptable miss distance to call "resolved"
 
     Returns:
@@ -264,11 +290,16 @@ def evaluate_plan(
           per_event: [{event_id, partner_norad_id, tca, new_miss_km, resolved}, ...],
           resolved_event_ids: [...],
           unresolved_event_ids: [...],
-          notes: "..."
+          evaluated_event_count, skipped_event_count, miss_threshold_km
         }
     """
-    if not burns:
+    if not burn_dvs_mps:
         return _err("Plan must contain at least one burn")
+    if not (len(burn_dvs_mps) == len(burn_directions) == len(burn_times_iso)):
+        return _err(
+            "burn_dvs_mps, burn_directions, burn_times_iso must be same length",
+            lengths=[len(burn_dvs_mps), len(burn_directions), len(burn_times_iso)],
+        )
 
     tle = _find_tle(int(asset_norad_id))
     if tle is None:
@@ -276,16 +307,24 @@ def evaluate_plan(
 
     # Resolve each burn's direction at its own burn time to an ECI Δv vector.
     burn_dvs: list[tuple[tuple[float, float, float], datetime]] = []
-    for b in burns:
-        pre = propagate(tle, b.burn_time)
-        if pre.r_eci is None:
-            return _err("Pre-burn propagation failed", burn_time=b.burn_time.isoformat())
+    for i, (dv_mps, direction, t_iso) in enumerate(
+        zip(burn_dvs_mps, burn_directions, burn_times_iso)
+    ):
         try:
-            u = _direction_unit_vector(pre, b.direction)
+            burn_time = datetime.fromisoformat(t_iso.replace("Z", "+00:00"))
+            if burn_time.tzinfo is None:
+                burn_time = burn_time.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return _err(f"burn_times_iso[{i}] is not valid ISO-8601 UTC: {t_iso}")
+        pre = propagate(tle, burn_time)
+        if pre.r_eci is None:
+            return _err("Pre-burn propagation failed", burn_index=i, burn_time=t_iso)
+        try:
+            u = _direction_unit_vector(pre, direction)
         except ValueError as exc:
-            return _err(str(exc), burn=b.model_dump_json())
-        dv_kms = (u[0] * b.dv_mps / 1000.0, u[1] * b.dv_mps / 1000.0, u[2] * b.dv_mps / 1000.0)
-        burn_dvs.append((dv_kms, b.burn_time))
+            return _err(str(exc), burn_index=i, direction=direction)
+        dv_kms = (u[0] * dv_mps / 1000.0, u[1] * dv_mps / 1000.0, u[2] * dv_mps / 1000.0)
+        burn_dvs.append((dv_kms, burn_time))
 
     # Query memory for upcoming events involving this asset.
     from orbital_agent.tools.memory import _store
@@ -342,7 +381,7 @@ def evaluate_plan(
         else:
             unresolved.append(ev.event_id)
 
-    total_dv_mps = float(sum(b.dv_mps for b in burns))
+    total_dv_mps = float(sum(burn_dvs_mps))
     return {
         "total_dv_mps": total_dv_mps,
         "per_event": per_event,

@@ -29,11 +29,6 @@ from orbital_agent._paths import ensure_repo_on_path
 ensure_repo_on_path()
 
 from orbital_agent.tools import analysis, data, memory, output  # noqa: E402
-from orbital_agent.tools._pydantic_models import (  # noqa: E402
-    Burn,
-    ObjectStateInput,
-    RecommendationOutput,
-)
 
 _LOG = logging.getLogger(__name__)
 
@@ -142,23 +137,27 @@ def re_propagate(norad_id: int, at_iso: str | None = None) -> dict:
 
 @mcp.tool()
 def compute_collision_probability(
-    obj1: ObjectStateInput,
-    obj2: ObjectStateInput,
-    covariance_inflation: float | None = None,
+    norad_id_a: int,
+    norad_id_b: int,
+    at_iso: str | None = None,
     kp_index: float | None = None,
+    covariance_inflation: float | None = None,
 ) -> dict:
-    """Compute probability of collision between two propagated states.
+    """Compute probability of collision between two objects at a given time.
 
-    Pass either covariance_inflation directly, or kp_index (the tool will
-    derive inflation: Kp<5 → 1.0, 5≤Kp<6 → 1.18, Kp≥6 → 1.4). Returns Pc plus
-    pc_band ('noise' / 'watch' / 'action') so you can immediately tell which
-    threshold the event crosses.
+    The tool propagates both objects from their TLEs to `at_iso` (defaulting
+    to "now", but for refining a flagged event pass the event's TCA) and
+    returns Pc plus pc_band ('noise' / 'watch' / 'action') so you can
+    immediately tell which threshold the event crosses. Pass kp_index (the
+    tool derives inflation: Kp<5 → 1.0, 5≤Kp<6 → 1.18, Kp≥6 → 1.4) or set
+    covariance_inflation explicitly.
     """
     return analysis.compute_collision_probability(
-        obj1=obj1,
-        obj2=obj2,
-        covariance_inflation=covariance_inflation,
+        norad_id_a=int(norad_id_a),
+        norad_id_b=int(norad_id_b),
+        at_iso=at_iso,
         kp_index=kp_index,
+        covariance_inflation=covariance_inflation,
     )
 
 
@@ -189,10 +188,17 @@ def simulate_maneuver(
 @mcp.tool()
 def evaluate_plan(
     asset_norad_id: int,
-    burns: list[Burn],
+    burn_dvs_mps: list[float],
+    burn_directions: list[str],
+    burn_times_iso: list[str],
     miss_threshold_km: float = 1.0,
 ) -> dict:
     """Score a maneuver plan against the asset's upcoming flagged conjunctions.
+
+    The three burn arrays must have the same length and define the burns by
+    matching index (burn i has dv=burn_dvs_mps[i], direction=burn_directions[i],
+    time=burn_times_iso[i]). Direction is one of: prograde / retrograde /
+    radial / anti-radial / normal / anti-normal. Time is UTC ISO 8601.
 
     For each upcoming conjunction event involving the asset, predicts the
     post-burn miss distance and reports whether the burn resolves it
@@ -201,7 +207,9 @@ def evaluate_plan(
     """
     return analysis.evaluate_plan(
         asset_norad_id=int(asset_norad_id),
-        burns=burns,
+        burn_dvs_mps=burn_dvs_mps,
+        burn_directions=burn_directions,
+        burn_times_iso=burn_times_iso,
         miss_threshold_km=miss_threshold_km,
     )
 
@@ -211,17 +219,37 @@ def evaluate_plan(
 @mcp.tool()
 def draft_recommendation(
     event_id: str,
-    recommendation: RecommendationOutput,
+    recommendation_json: str,
 ) -> dict:
     """Persist a maneuver recommendation as a verdict row for the Approver UI.
 
     Call this at the end of Plan mode after evaluating at least two candidate
-    plans. The RecommendationOutput must include the primary plan, at least
-    one alternative, plain-English reasoning a flight director reads in <30s,
-    and an urgency level. The Approver UI polls /api/verdicts/pending and
-    will render this as a card with Approve/Reject buttons.
+    plans. Pass `recommendation_json` as a JSON string conforming to this shape:
+
+      {
+        "asset_id": <int NORAD>,
+        "urgency": "informational" | "act_within_24hr" | "act_within_12hr"
+                   | "act_within_6hr" | "act_immediately",
+        "primary_plan": {
+          "name": "<short label>",
+          "burns": [
+            {"dv_mps": <float>, "direction":
+               "prograde"|"retrograde"|"radial"|"anti-radial"|"normal"|"anti-normal",
+             "burn_time": "<UTC ISO 8601>"}
+          ],
+          "total_dv_mps": <float>,
+          "conjunctions_resolved": ["<event_id>", ...]
+        },
+        "alternative_plans": [ { ...same shape as primary_plan }, ... ],
+        "reasoning": "<plain-English rationale ≥20 chars>"
+      }
+
+    The tool validates the structure via Pydantic before persisting; bad
+    JSON or bad shape returns an error you can correct and retry.
     """
-    return output.draft_recommendation(event_id=event_id, recommendation=recommendation)
+    return output.draft_recommendation(
+        event_id=event_id, recommendation_json=recommendation_json
+    )
 
 
 # ── Entrypoint ─────────────────────────────────────────────────────────────

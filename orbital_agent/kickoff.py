@@ -138,9 +138,12 @@ def _build_result(
     agent_meta = meta.get("agentMeta", {}) or {}
     duration_ms = int(meta.get("durationMs", 0) or 0)
 
-    # Find tool calls in the session jsonl. OpenClaw doesn't put them in the
-    # top-level response, but the session file at agentMeta.sessionFile has
-    # one JSON object per line including tool_use entries.
+    # Parse the session jsonl. OpenClaw's actual format is:
+    #   {"type":"message","message":{"role":"assistant","content":[
+    #       {"type":"thinking","thinking":"..."},
+    #       {"type":"toolCall","name":"orbital__...","arguments":{...}}
+    #   ]}}
+    #   {"type":"message","message":{"role":"toolResult", ...}}
     tool_calls: list[str] = []
     text_events = 0
     session_file = agent_meta.get("sessionFile")
@@ -155,32 +158,37 @@ def _build_result(
                         entry = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    kind = entry.get("type") or entry.get("event") or ""
-                    if kind in ("tool_use", "tool_call"):
-                        name = (
-                            entry.get("name")
-                            or (entry.get("tool") or {}).get("name")
-                            or "?"
-                        )
-                        tool_calls.append(name)
-                    elif kind in ("text", "assistant_text", "thought"):
-                        text_events += 1
+                    msg = entry.get("message") or {}
+                    role = msg.get("role")
+                    if role != "assistant":
+                        continue
+                    for item in msg.get("content", []) or []:
+                        kind = item.get("type")
+                        if kind == "toolCall":
+                            tool_calls.append(item.get("name", "?"))
+                        elif kind in ("thinking", "text"):
+                            text_events += 1
         except OSError as exc:
             _LOG.warning("Could not read session file %s: %s", session_file, exc)
 
-    # Find verdict (if any) written for this event during this run.
+    # Look up any verdict for this event (not just pending — agent verdicts
+    # land with operator_decision IS NULL but list_pending_verdicts filters
+    # at the SQL level, so we query directly).
     verdict_written = False
     verdict_type: str | None = None
     verdict_id: str | None = None
-    pending = store.list_pending_verdicts()
-    matches = [v for v in pending if v.event_id == event_id]
-    # Most-recent verdict for this event takes precedence.
-    matches.sort(key=lambda v: v.issued_at, reverse=True)
-    if matches:
-        v = matches[0]
-        verdict_written = True
-        verdict_type = v.verdict_type
-        verdict_id = v.verdict_id
+    with store._lock:  # noqa: SLF001
+        cur = store._conn.cursor()  # noqa: SLF001
+        cur.execute(
+            "SELECT verdict_id, verdict_type FROM verdicts "
+            "WHERE event_id = ? ORDER BY issued_at DESC LIMIT 1",
+            (event_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            verdict_written = True
+            verdict_id = str(row[0])
+            verdict_type = str(row[1])
 
     return InvestigationResult(
         event_id=event_id,

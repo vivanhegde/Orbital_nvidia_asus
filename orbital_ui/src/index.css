@@ -1,0 +1,180 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full m-0;
+  }
+  body {
+    @apply bg-mission-bg min-h-screen font-mono text-slate-200;
+  }
+}
+
+@layer utilities {
+  .animate-missions-sat-card {
+    animation: missions-sat-card-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-missions-detail-body {
+    animation: missions-detail-body 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-missions-hud-pop {
+    animation: missions-hud-pop 0.52s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-missions-hud-pop-delay-sm {
+    animation: missions-hud-pop 0.52s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: 0.09s;
+  }
+
+  .animate-missions-hud-pop-delay-md {
+    animation: missions-hud-pop 0.52s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: 0.16s;
+  }
+
+  .animate-missions-header-reveal {
+    animation: missions-header-reveal 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .missions-kpi-strip > * {
+    opacity: 0;
+    animation: missions-kpi-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .missions-kpi-strip > *:nth-child(1) {
+    animation-delay: 0.04s;
+  }
+  .missions-kpi-strip > *:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  .missions-kpi-strip > *:nth-child(3) {
+    animation-delay: 0.16s;
+  }
+  .missions-kpi-strip > *:nth-child(4) {
+    animation-delay: 0.22s;
+  }
+  .missions-kpi-strip > *:nth-child(5) {
+    animation-delay: 0.28s;
+  }
+
+  .missions-event-card {
+    @apply transition-[transform,box-shadow,border-color] duration-200 ease-out;
+  }
+  .missions-event-card:hover {
+    box-shadow: 0 0 24px rgba(34, 211, 238, 0.12);
+  }
+  .missions-event-card:active {
+    transform: scale(0.985);
+  }
+
+  .missions-highlight-pulse {
+    animation: missions-ring-pulse 1.4s ease-out 2;
+  }
+
+  .missions-hover-card-content[data-state="open"] {
+    animation: missions-hover-fade-in 0.2s ease-out forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-missions-sat-card,
+  .animate-missions-detail-body,
+  .animate-missions-hud-pop,
+  .animate-missions-hud-pop-delay-sm,
+  .animate-missions-hud-pop-delay-md,
+  .animate-missions-header-reveal,
+  .missions-highlight-pulse,
+  .missions-hover-card-content[data-state="open"] {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+
+  .missions-kpi-strip > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@keyframes missions-sat-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes missions-detail-body {
+  0% {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes missions-hud-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes missions-header-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes missions-kpi-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes missions-ring-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12);
+  }
+}
+
+@keyframes missions-hover-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

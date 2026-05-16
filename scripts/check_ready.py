@@ -100,12 +100,21 @@ def main() -> int:
     input_tokens = probe["result"]["meta"]["agentMeta"]["usage"]["input"]
 
     # ── C. Feature 2 — MCP server & 11 tools ──────────────────────────────
+    # OpenClaw exposes MCP tools as "<servername>__<toolname>" — our server is
+    # registered as "orbital" so all our tools show up as "orbital__<name>".
     section("C. Feature 2")
     our_tools = {
-        "get_flagged_conjunctions", "get_object_metadata", "get_space_weather",
-        "get_conjunctions_for_asset", "query_memory", "write_memory",
-        "re_propagate", "compute_collision_probability", "simulate_maneuver",
-        "evaluate_plan", "draft_recommendation",
+        "orbital__get_flagged_conjunctions",
+        "orbital__get_object_metadata",
+        "orbital__get_space_weather",
+        "orbital__get_conjunctions_for_asset",
+        "orbital__query_memory",
+        "orbital__write_memory",
+        "orbital__re_propagate",
+        "orbital__compute_collision_probability",
+        "orbital__simulate_maneuver",
+        "orbital__evaluate_plan",
+        "orbital__draft_recommendation",
     }
     mcp_tool_names = {t["name"] for t in sp.get("tools", {}).get("entries", [])}
     missing_ours = our_tools - mcp_tool_names

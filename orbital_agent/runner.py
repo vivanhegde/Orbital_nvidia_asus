@@ -46,6 +46,11 @@ from orbital_persist.store import EventStore  # noqa: E402
 
 _LOG = logging.getLogger(__name__)
 
+# Cap retries for events the agent fails to produce a verdict on. Without
+# this, a "ghost" event the model can't conclude on would block the queue
+# forever (each iteration would pick it up, see no verdict, pick it up again).
+MAX_INVESTIGATION_ATTEMPTS = 3
+
 
 class Runner:
     def __init__(self, config: AgentConfig) -> None:
@@ -54,6 +59,7 @@ class Runner:
         self._stop = asyncio.Event()
         self._active = False
         self._active_event_id: Optional[str] = None
+        self._attempts: dict[str, int] = {}
         self._heartbeat = HeartbeatLoop(
             config, self._store, is_active=lambda: self._active
         )
@@ -101,7 +107,13 @@ class Runner:
         mark_in_progress(event_id)
         self._active = True
         self._active_event_id = event_id
-        _LOG.info("Picked up event %s (%s vs %s)", event_id, obj1_name, obj2_name)
+        attempt = self._attempts.get(event_id, 0) + 1
+        self._attempts[event_id] = attempt
+        _LOG.info(
+            "Picked up event %s (attempt %d/%d) (%s vs %s)",
+            event_id, attempt, MAX_INVESTIGATION_ATTEMPTS, obj1_name, obj2_name,
+        )
+        result_verdict_written = False
         try:
             # send_kickoff_for_event is blocking (subprocess.run). Run it in
             # a worker thread so the event loop (and heartbeat coroutine,
@@ -112,6 +124,7 @@ class Runner:
                 config=self._config,
                 store=self._store,
             )
+            result_verdict_written = result.verdict_written
             _LOG.info(
                 "Event %s done: verdict=%s tools=%d duration=%.1fs",
                 event_id,
@@ -124,6 +137,27 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 — keep the runner alive on unexpected errors
             _LOG.exception("Unexpected error during investigation %s: %s", event_id, exc)
         finally:
+            if result_verdict_written:
+                self._attempts.pop(event_id, None)
+            elif attempt >= MAX_INVESTIGATION_ATTEMPTS:
+                _LOG.warning(
+                    "Event %s exceeded %d attempts without a verdict — auto-dismissing to unblock queue",
+                    event_id, MAX_INVESTIGATION_ATTEMPTS,
+                )
+                try:
+                    self._store.record_verdict(
+                        event_id=event_id,
+                        verdict_type="dismissed",
+                        reasoning=(
+                            f"Auto-dismissed by runner: agent completed {attempt} "
+                            f"investigation attempts without producing a verdict. "
+                            f"Likely a model-side reasoning issue; review session logs."
+                        ),
+                        plan=None,
+                    )
+                    self._attempts.pop(event_id, None)
+                except Exception as exc:  # noqa: BLE001
+                    _LOG.exception("Failed to write auto-dismiss verdict for %s: %s", event_id, exc)
             self._active = False
             self._active_event_id = None
             mark_done(event_id)

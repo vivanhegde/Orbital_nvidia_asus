@@ -1,39 +1,69 @@
-# OpenClaw configuration for Orbital
+# OpenClaw configuration for the Orbital agent
 
-This folder holds the OpenClaw agent configuration. The exact layout depends on
-what OpenClaw expects on disk — the published docs are inconsistent (some
-sources say `SOUL.md` + `config/*.yaml`, others mention `~/.openclaw/openclaw.json`).
-Reconcile against your installed version before relying on this.
+OpenClaw discovered: native MCP support (`openclaw mcp set/show/list/serve`)
+and a `agents add` command that creates isolated agents with their own
+workspace dir. Orbital uses a dedicated agent so the default `main` agent
+(coding-agent persona with shell/file-write tools) isn't disturbed and we
+don't inherit its tool surface.
 
-## Files
+## Layout
 
-- `SOUL.md` — the agent's identity (role, rules, tools, output format).
-  Copy or symlink this into the location OpenClaw expects for the `orbital`
-  agent on your Spark install.
+- `workspace/SOUL.md` — agent identity (role, rules, tools, output format).
+  This directory is passed to OpenClaw as the agent's workspace; OpenClaw
+  injects any `.md` files inside it into the system prompt at every turn,
+  so only put files here that the model should always see.
+- `README.md` (this file) — repo-only notes; lives one level above the
+  workspace so OpenClaw does not inject it.
 
-## Files to add after verifying the install (TODO)
+OpenClaw will look for these workspace files at runtime — present ones are
+injected, missing ones are skipped silently:
 
-- `AGENTS.md` — one-paragraph agent persona (referenced in some OpenClaw guides).
-- Model provider config that points OpenClaw at Ollama. Likely either:
-  - `config/models.yaml` with an `openai-compatible` provider entry
-    (`base_url: http://localhost:11434/v1`, `model: nemotron-3-nano:30b`), or
-  - `~/.openclaw/openclaw.json` keys for the same.
-- MCP server registration so OpenClaw discovers the `orbital_agent.mcp_server`
-  tools. Verify whether OpenClaw's current version supports MCP servers natively
-  or whether tools must be exposed as OpenClaw "Skills" instead.
+| File | Status | Notes |
+|---|---|---|
+| `SOUL.md` | present | system-prompt identity |
+| `AGENTS.md` | omitted | redundant with SOUL.md for our narrow agent |
+| `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md` | omitted | coding-agent boilerplate we don't need |
 
-## Verifying your install
+## Creating the agent on the Spark
 
-Run these commands on the Spark and capture the output — the answers determine
-exactly what files belong here:
+After pulling these files onto the Spark:
 
+```bash
+cd ~/Orbital_nvidia_asus
+openclaw agents add orbital \
+  --workspace "$(pwd)/orbital_agent/openclaw/workspace" \
+  --model ollama/nemotron-3-nano:30b \
+  --non-interactive \
+  --json
 ```
-openclaw --version
-openclaw --help
-openclaw gateway --help
-openclaw onboard --help
-ls -la ~/.openclaw/
-cat ~/.openclaw/openclaw.json 2>/dev/null || echo "no openclaw.json"
+
+Verify with:
+
+```bash
+openclaw agents list
+openclaw agent --agent orbital --json \
+  --message "Reply with exactly the word: ready"
 ```
 
-Bring the output back to the plan and we'll lock the config layout for real.
+The reply's `result.payloads[0].text` should be `ready` (give or take
+whitespace), `executionTrace.winnerModel` should be `nemotron-3-nano:30b`,
+and `systemPromptReport.injectedWorkspaceFiles` should list `SOUL.md` as
+present and everything else as missing. That confirms the agent is using
+*our* workspace, not the default `main` workspace.
+
+## MCP server registration (Feature 2 — coming next)
+
+Once the MCP server exists at `orbital_agent/mcp_server.py`:
+
+```bash
+openclaw mcp set orbital '{
+  "command": "python",
+  "args": ["-m", "orbital_agent.mcp_server"],
+  "cwd": "/home/asus/Orbital_nvidia_asus",
+  "transport": "stdio"
+}'
+openclaw mcp list
+```
+
+Final shape verified by checking that the next `openclaw agent --agent orbital`
+run lists our 11 tools in `systemPromptReport.tools.entries`.

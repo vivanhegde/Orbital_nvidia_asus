@@ -180,7 +180,7 @@ def _normalize(entry: dict[str, Any], related_event_id: str) -> list[dict[str, A
                     })
     elif role == "toolResult":
         tool_name = msg.get("toolName") or "?"
-        summary = _summarize_tool_result(msg)
+        summary = _summarize_tool_result(msg, tool_name)
         out.append({
             "type": "tool_result",
             "content": {"name": tool_name, "summary": summary},
@@ -199,14 +199,175 @@ def _summarize_args(args: dict[str, Any], max_chars: int = 240) -> str:
     return s if len(s) <= max_chars else s[: max_chars - 1] + "…"
 
 
-def _summarize_tool_result(msg: dict[str, Any], max_chars: int = 320) -> str:
-    """Pull a short text summary out of a tool result for the UI."""
+def _summarize_tool_result(msg: dict[str, Any], tool_name: str, max_chars: int = 240) -> str:
+    """Produce a human-readable one-line summary of a tool result.
+
+    Each tool returns a JSON payload (per `orbital_agent.tools.*`); we parse
+    it and dispatch to a tool-specific formatter for legibility. On parse
+    failure we fall back to a clipped raw string.
+    """
     items = msg.get("content") or []
-    pieces: list[str] = []
+    raw_pieces: list[str] = []
     for it in items:
         if isinstance(it, dict) and it.get("type") == "text":
-            pieces.append(it.get("text") or "")
-    text = " ".join(p.strip() for p in pieces).strip()
-    if not text:
+            raw_pieces.append(it.get("text") or "")
+    raw = " ".join(p.strip() for p in raw_pieces).strip()
+    if not raw:
         return "(empty result)"
-    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+    # Try to parse as JSON; if it's our tool's response dict, format it nicely.
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw if len(raw) <= max_chars else raw[: max_chars - 1] + "…"
+
+    if isinstance(payload, dict) and "error" in payload:
+        msg_text = str(payload.get("error", "unknown error"))
+        return f"⚠ {msg_text}"
+
+    formatter = _RESULT_FORMATTERS.get(_strip_prefix(tool_name))
+    if formatter is not None:
+        try:
+            return formatter(payload)
+        except (KeyError, TypeError, ValueError):
+            pass  # fall through to clipped raw
+
+    return raw if len(raw) <= max_chars else raw[: max_chars - 1] + "…"
+
+
+def _strip_prefix(tool_name: str) -> str:
+    """`orbital__get_space_weather` → `get_space_weather`."""
+    return tool_name.split("__", 1)[-1] if "__" in tool_name else tool_name
+
+
+# ── Per-tool result formatters ─────────────────────────────────────────────
+# Each formatter takes the parsed payload dict and returns a one-line string.
+# Keep summaries short, factual, and useful to a flight director reading the
+# stream — not a debugger reading the raw return.
+
+def _fmt_flagged_conjunctions(p: dict[str, Any]) -> str:
+    items = p.get("conjunctions") or []
+    n = p.get("count", len(items))
+    return f"Found {n} flagged conjunction{'s' if n != 1 else ''}."
+
+
+def _fmt_object_metadata(p: dict[str, Any]) -> str:
+    name = p.get("name") or "?"
+    kind = p.get("object_type") or "?"
+    op = p.get("operator")
+    is_man = p.get("is_maneuverable")
+    fuel = p.get("fuel_remaining_mps")
+    parts = [f"{name} ({kind}"]
+    if op:
+        parts[0] += f", {op}"
+    parts[0] += ")"
+    if is_man is True:
+        parts.append("maneuverable")
+        if fuel is not None:
+            parts.append(f"{fuel:.1f} m/s Δv remaining")
+    elif is_man is False:
+        parts.append("non-maneuverable")
+    return " · ".join(parts)
+
+
+def _fmt_space_weather(p: dict[str, Any]) -> str:
+    kp = p.get("kp_index")
+    xray = p.get("xray_class") or "?"
+    storm = p.get("geomag_storm_level") or "?"
+    kp_s = f"Kp {kp:.2f}" if isinstance(kp, (int, float)) else "Kp ?"
+    return f"{kp_s} · X-ray {xray} · {storm}"
+
+
+def _fmt_conjunctions_for_asset(p: dict[str, Any]) -> str:
+    norad = p.get("norad_id", "?")
+    events = p.get("events") or []
+    return f"{len(events)} upcoming event{'s' if len(events) != 1 else ''} for NORAD {norad}"
+
+
+def _fmt_query_memory(p: dict[str, Any]) -> str:
+    if p.get("found") and p.get("event_id"):
+        events = p.get("events") or []
+        e = events[0] if events else {}
+        v = e.get("verdict") or {}
+        if v:
+            return f"Event {p['event_id'][:8]}: prior verdict={v.get('verdict_type', '?')}"
+        return f"Event {p['event_id'][:8]}: no prior verdict"
+    norad = p.get("norad_id", "?")
+    n = p.get("count", len(p.get("events") or []))
+    return f"{n} prior event{'s' if n != 1 else ''} for NORAD {norad}"
+
+
+def _fmt_write_memory(p: dict[str, Any]) -> str:
+    vt = p.get("verdict_type", "?")
+    eid = p.get("event_id", "?")
+    return f"Verdict '{vt}' recorded for event {eid[:8]}"
+
+
+def _fmt_re_propagate(p: dict[str, Any]) -> str:
+    state = p.get("state") or {}
+    age_h = p.get("tle_age_hours")
+    name = p.get("tle_name") or f"NORAD {state.get('norad_id', '?')}"
+    r = state.get("r_eci_km") or []
+    if isinstance(age_h, (int, float)) and len(r) == 3:
+        return (
+            f"{name}: r=({r[0]:.0f}, {r[1]:.0f}, {r[2]:.0f}) km · "
+            f"TLE {age_h:.1f}h old"
+        )
+    return f"{name} propagated"
+
+
+def _fmt_compute_pc(p: dict[str, Any]) -> str:
+    pc = p.get("pc")
+    band = p.get("pc_band", "?")
+    miss = p.get("miss_distance_km")
+    inf = p.get("covariance_inflation_used")
+    pc_s = f"Pc {pc:.2e}" if isinstance(pc, (int, float)) else "Pc ?"
+    parts = [pc_s, f"band={band}"]
+    if isinstance(miss, (int, float)):
+        parts.append(f"miss {miss:.3f} km")
+    if isinstance(inf, (int, float)) and inf != 1.0:
+        parts.append(f"σ×{inf:.2f}")
+    return " · ".join(parts)
+
+
+def _fmt_simulate_maneuver(p: dict[str, Any]) -> str:
+    dv = p.get("dv_magnitude_mps")
+    samples = p.get("samples") or []
+    dv_s = f"{dv:.3f} m/s" if isinstance(dv, (int, float)) else "?"
+    return f"Burn applied: Δv={dv_s} · {len(samples)} post-burn samples"
+
+
+def _fmt_evaluate_plan(p: dict[str, Any]) -> str:
+    total = p.get("total_dv_mps")
+    resolved = len(p.get("resolved_event_ids") or [])
+    evaluated = p.get("evaluated_event_count", 0)
+    total_s = f"{total:.3f} m/s" if isinstance(total, (int, float)) else "?"
+    return f"Plan: Δv total {total_s} · resolves {resolved}/{evaluated} events"
+
+
+def _fmt_draft_recommendation(p: dict[str, Any]) -> str:
+    vid = p.get("verdict_id", "?")
+    dv = p.get("primary_total_dv_mps")
+    alts = p.get("alternative_count", 0)
+    resolved = p.get("conjunctions_resolved") or []
+    dv_s = f"{dv:.3f} m/s" if isinstance(dv, (int, float)) else "?"
+    return (
+        f"Recommendation drafted ({vid[:8]}): primary Δv {dv_s} · "
+        f"{alts} alternative{'s' if alts != 1 else ''} · "
+        f"resolves {len(resolved)} event{'s' if len(resolved) != 1 else ''}"
+    )
+
+
+_RESULT_FORMATTERS = {
+    "get_flagged_conjunctions": _fmt_flagged_conjunctions,
+    "get_object_metadata": _fmt_object_metadata,
+    "get_space_weather": _fmt_space_weather,
+    "get_conjunctions_for_asset": _fmt_conjunctions_for_asset,
+    "query_memory": _fmt_query_memory,
+    "write_memory": _fmt_write_memory,
+    "re_propagate": _fmt_re_propagate,
+    "compute_collision_probability": _fmt_compute_pc,
+    "simulate_maneuver": _fmt_simulate_maneuver,
+    "evaluate_plan": _fmt_evaluate_plan,
+    "draft_recommendation": _fmt_draft_recommendation,
+}

@@ -35,6 +35,20 @@ function formatContent(ev: AgentEvent): string {
   return JSON.stringify(c);
 }
 
+/**
+ * Reasoning models (Nemotron included) demarcate their final answer with
+ * `\boxed{...}` in the chain-of-thought. Pull the inner value out so the UI
+ * can render those moments distinctly.
+ *
+ * Returns the inner string (e.g. "dismissed", "watch", "recommended", "Plan B")
+ * or null if no boxed answer is present.
+ */
+function extractBoxedAnswer(content: string): string | null {
+  const m = content.match(/\\boxed\{([^}]+)\}/);
+  if (!m || m[1] === undefined) return null;
+  return m[1].trim();
+}
+
 function formatTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
@@ -84,19 +98,46 @@ export function AgentReasoningStream({ eventId, className }: AgentReasoningStrea
       {filtered.length === 0 ? (
         <span className="text-[#3a5060] italic">{emptyHint}</span>
       ) : (
-        filtered.map((ev) => (
-          <div key={ev._seq} className="flex gap-2 items-start">
-            <span className="text-[#3a5060] shrink-0 tabular-nums">
-              {formatTimestamp(ev.timestamp)}
-            </span>
-            <span className={`shrink-0 uppercase ${TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}`}>
-              {TYPE_LABEL[ev.type] ?? ev.type}
-            </span>
-            <span className={TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}>
-              {formatContent(ev)}
-            </span>
-          </div>
-        ))
+        filtered.map((ev) => {
+          const text = formatContent(ev);
+          const boxed = extractBoxedAnswer(text);
+          if (boxed) {
+            return (
+              <div
+                key={ev._seq}
+                className="flex gap-2 items-start rounded-md px-2 py-1.5 bg-amber-500/10 border-l-2 border-amber-400"
+              >
+                <span className="text-[#3a5060] shrink-0 tabular-nums">
+                  {formatTimestamp(ev.timestamp)}
+                </span>
+                <span className="shrink-0 uppercase text-amber-400 font-bold tracking-wider">
+                  FINAL
+                </span>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-amber-300 font-bold text-sm">
+                    {boxed}
+                  </span>
+                  <span className="text-[#7a9ab0] text-[10px] truncate">
+                    {text.replace(/\\boxed\{[^}]+\}/, "").trim()}
+                  </span>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={ev._seq} className="flex gap-2 items-start">
+              <span className="text-[#3a5060] shrink-0 tabular-nums">
+                {formatTimestamp(ev.timestamp)}
+              </span>
+              <span className={`shrink-0 uppercase ${TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}`}>
+                {TYPE_LABEL[ev.type] ?? ev.type}
+              </span>
+              <span className={TYPE_COLOR[ev.type] ?? "text-[#7a9ab0]"}>
+                {text}
+              </span>
+            </div>
+          );
+        })
       )}
     </div>
   );

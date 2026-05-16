@@ -1,0 +1,15 @@
+{
+  "id": "scn-03-dismiss",
+  "description": "ISS vs COSMOS debris — low Pc noise band for dismiss path",
+  "event": {
+    "obj1_norad_id": 25544,
+    "obj1_name": "ISS (ZARYA)",
+    "obj2_norad_id": 33757,
+    "obj2_name": "COSMOS 2251 DEB",
+    "hours_to_tca": 20,
+    "miss_km": 42.0,
+    "initial_pc": 5e-7,
+    "relative_velocity_km_s": 14.2,
+    "kp_index": 2.5
+  }
+}

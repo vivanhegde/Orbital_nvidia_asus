@@ -2,7 +2,7 @@
 
 The reasoning loop itself runs inside the OpenClaw daemon — this module is
 just the glue that turns a `conjunction_events` row into a user-turn message,
-fires `openclaw agent --agent orbital --json --thinking high --session-id <uuid>`
+fires `openclaw agent --agent orbital --json --thinking medium --session-id <uuid>`
 as a subprocess, and parses the structured response.
 
 A fresh session ID per investigation keeps OpenClaw's per-session memory
@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from orbital_agent._paths import ensure_repo_on_path
 from orbital_agent.config import AgentConfig, load as load_config
 
@@ -31,6 +33,29 @@ from orbital_persist.store import EventStore  # noqa: E402
 _LOG = logging.getLogger(__name__)
 
 _TEMPLATE_PATH = Path(__file__).parent / "prompts" / "investigate_kickoff.txt"
+
+
+def _emit_agent_bus(
+    cfg: AgentConfig,
+    typ: str,
+    content: str,
+    related_event_id: str | None,
+) -> None:
+    """Best-effort POST to Feature-5 bus so the UI SSE stream can show activity."""
+    url = f"{cfg.api_base_url.rstrip('/')}/api/agent/event"
+    body = {
+        "type": typ,
+        "content": content,
+        "related_event_id": related_event_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "kickoff",
+    }
+    try:
+        httpx.post(url, json=body, timeout=3.0)
+    except httpx.HTTPError:
+        _LOG.debug("agent bus POST failed (API down?)", exc_info=False)
+    except Exception:
+        _LOG.debug("agent bus POST failed", exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -50,6 +75,21 @@ class InvestigationResult:
 def build_kickoff(event: ConjunctionEventRecord) -> str:
     """Render the investigation-kickoff user-turn message for one event."""
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    kp_index = "N/A"
+    geomag_storm_level = "N/A"
+    xray_class = "N/A"
+    space_weather_fetched_at = "N/A"
+    try:
+        from store import get_space_weather  # noqa: PLC0415 — needs orbital_data on path
+
+        sw = get_space_weather()
+        kp_index = f"{sw.kp_index:.2f}"
+        geomag_storm_level = sw.geomag_storm_level
+        xray_class = sw.xray_class
+        space_weather_fetched_at = sw.fetched_at.astimezone(timezone.utc).isoformat()
+    except Exception:
+        _LOG.debug("Kickoff: could not load space weather for template", exc_info=False)
+
     return template.format(
         event_id=event.event_id,
         obj1_name=event.obj1_name,
@@ -59,8 +99,12 @@ def build_kickoff(event: ConjunctionEventRecord) -> str:
         tca=event.tca.astimezone(timezone.utc).isoformat(),
         miss_km=event.initial_miss_distance_km,
         initial_pc=event.initial_pc,
-        rel_v_kms=event.relative_velocity_km_s,
+        rel_v_kms=event.related_velocity_km_s,
         first_detected_at=event.first_detected_at.astimezone(timezone.utc).isoformat(),
+        kp_index=kp_index,
+        geomag_storm_level=geomag_storm_level,
+        xray_class=xray_class,
+        space_weather_fetched_at=space_weather_fetched_at,
     )
 
 
@@ -69,8 +113,8 @@ def send_kickoff_for_event(
     *,
     config: AgentConfig | None = None,
     store: EventStore | None = None,
-    thinking: str = "high",
-    timeout_seconds: int = 600,
+    thinking: str = "medium",
+    timeout_seconds: int = 240,
 ) -> InvestigationResult:
     """Run one full investigation for `event_id` through OpenClaw.
 
@@ -94,6 +138,12 @@ def send_kickoff_for_event(
             "Kicking off investigation event_id=%s session=%s agent=%s",
             event_id, session_id, cfg.openclaw_agent_id,
         )
+        _emit_agent_bus(
+            cfg,
+            "investigation_start",
+            f"Investigation started (session {session_id[:8]}…) — {event.obj1_name} vs {event.obj2_name}",
+            event_id,
+        )
 
         cmd = [
             "openclaw", "agent",
@@ -104,8 +154,23 @@ def send_kickoff_for_event(
             "--json",
             "--message", kickoff_text,
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds + 30)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds + 30)
+        except subprocess.TimeoutExpired:
+            _emit_agent_bus(
+                cfg,
+                "investigation_error",
+                f"Investigation subprocess timed out (>{timeout_seconds + 30}s) for {event_id}",
+                event_id,
+            )
+            raise
         if proc.returncode != 0:
+            _emit_agent_bus(
+                cfg,
+                "investigation_error",
+                f"openclaw agent exited {proc.returncode} for event {event_id}",
+                event_id,
+            )
             raise RuntimeError(
                 f"openclaw agent exited {proc.returncode}\n"
                 f"stderr: {proc.stderr[:1000]}\nstdout: {proc.stdout[:500]}"
@@ -113,12 +178,24 @@ def send_kickoff_for_event(
         try:
             payload = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
+            _emit_agent_bus(
+                cfg,
+                "investigation_error",
+                f"OpenClaw output was not valid JSON for event {event_id}: {exc}",
+                event_id,
+            )
             raise RuntimeError(
                 f"Could not parse openclaw agent output as JSON: {exc}\n"
                 f"stdout (first 800): {proc.stdout[:800]}"
             ) from exc
 
-        return _build_result(event_id, session_id, payload, store)
+        result = _build_result(event_id, session_id, payload, store)
+        status = (
+            f"Complete — verdict={result.verdict_type!r} tools={len(result.tool_calls)} "
+            f"duration={result.duration_ms / 1000:.1f}s"
+        )
+        _emit_agent_bus(cfg, "investigation_complete", status, event_id)
+        return result
     finally:
         if owned_store:
             store.close()

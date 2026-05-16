@@ -1,0 +1,15 @@
+{
+  "id": "scn-02-watch",
+  "description": "STARLINK-1008 vs ISS — watch-band Pc, critical asset",
+  "event": {
+    "obj1_norad_id": 44714,
+    "obj1_name": "STARLINK-1008",
+    "obj2_norad_id": 25544,
+    "obj2_name": "ISS (ZARYA)",
+    "hours_to_tca": 15,
+    "miss_km": 2.4,
+    "initial_pc": 8e-5,
+    "relative_velocity_km_s": 7.2,
+    "kp_index": 3.8
+  }
+}

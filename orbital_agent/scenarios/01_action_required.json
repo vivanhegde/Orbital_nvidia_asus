@@ -1,0 +1,15 @@
+{
+  "id": "scn-01-action-required",
+  "description": "STARLINK-1008 vs COSMOS 2251 DEB — initial Pc above 1e-4",
+  "event": {
+    "obj1_norad_id": 44714,
+    "obj1_name": "STARLINK-1008",
+    "obj2_norad_id": 33757,
+    "obj2_name": "COSMOS 2251 DEB",
+    "hours_to_tca": 18,
+    "miss_km": 0.712,
+    "initial_pc": 3.2e-4,
+    "relative_velocity_km_s": 14.8,
+    "kp_index": 4.2
+  }
+}

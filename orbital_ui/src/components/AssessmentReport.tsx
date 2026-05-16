@@ -3,7 +3,7 @@ import type { VerdictEnriched, ObjectProfile, AssetHistoryEntry } from "@/lib/ty
 
 interface AssessmentReportProps {
   verdict: VerdictEnriched;
-  onApprove: (planKey: string) => void;
+  onApprove: () => void;
   onReject: () => void;
   approving: boolean;
 }
@@ -26,7 +26,7 @@ function formatTimeToTca(tcaIso: string): string {
 }
 
 function urgencyFromPlan(plan: VerdictEnriched["plan"]): string {
-  const raw = (plan as Record<string, unknown>)?.urgency as string | undefined;
+  const raw = plan?.urgency;
   if (raw) return raw.replace(/_/g, " ").toUpperCase();
   return "ACT WITHIN 24 HOURS";
 }
@@ -92,13 +92,11 @@ function DataRow({ label, value, accent }: { label: string; value: React.ReactNo
 }
 
 function PlanSection({
-  planKey,
   plan,
   isRecommended,
   onApprove,
   approving,
 }: {
-  planKey: string;
   plan: { label: string; burns_ms?: number[]; total_delta_v_ms?: number; events_resolved?: number };
   isRecommended: boolean;
   onApprove: () => void;
@@ -290,10 +288,9 @@ export function AssessmentReport({ verdict, onApprove, onReject, approving }: As
             {Object.entries(plan.plans).map(([key, p]) => (
               <PlanSection
                 key={key}
-                planKey={key}
                 plan={p}
                 isRecommended={plan.recommended === key}
-                onApprove={() => onApprove(key)}
+                onApprove={onApprove}
                 approving={approving}
               />
             ))}
@@ -309,8 +306,9 @@ export function AssessmentReport({ verdict, onApprove, onReject, approving }: As
       <div className="flex gap-3 mt-5 pt-4 border-t border-[rgba(255,255,255,0.06)]">
         <button
           type="button"
+          disabled={approving}
           onClick={onReject}
-          className="px-4 py-2 border border-mission-border bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.06)] text-slate-300 rounded text-xs font-bold transition-colors"
+          className="px-4 py-2 border border-mission-border bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.06)] text-slate-300 rounded text-xs font-bold transition-colors disabled:opacity-40"
         >
           Reject — Do Nothing
         </button>

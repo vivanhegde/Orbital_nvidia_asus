@@ -169,6 +169,7 @@ export interface ManeuverPlanOption {
 export interface SyntheticPlanPayload {
   recommended: string;
   plans: Record<string, ManeuverPlanOption>;
+  urgency?: string;
 }
 
 export interface ObjectProfile {

@@ -9,6 +9,14 @@ Initial Pc: {initial_pc:.3e}
 Relative velocity: {rel_v_kms:.3f} km/s
 Detected: {first_detected_at}
 
+Space weather snapshot (use for covariance when calling compute_collision_probability — calling get_space_weather is optional unless you need a fresher reading):
+  Kp index: {kp_index}
+  Geomagnetic storm level: {geomag_storm_level}
+  X-ray class: {xray_class}
+  Snapshot time (UTC): {space_weather_fetched_at}
+
+Tool budget: you have at most 6 tool calls for this investigation. By tool call 5 you MUST issue your final verdict (orbital__write_memory or orbital__draft_recommendation). Do not exceed 6 tools.
+
 Begin your investigation following the protocol in your SOUL. Stream your reasoning as you work — narrate every conclusion or shift of focus in one short sentence. Use your tools whenever you need data; do not guess values you can fetch.
 
 When you reach a verdict, call the appropriate output tool:

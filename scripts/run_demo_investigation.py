@@ -9,7 +9,7 @@ Steps:
   1. Insert the demo conjunction scenario (STARLINK-1008 vs Cosmos-2251 debris,
      Pc 3.2e-4) — skipped if already present.
   2. Run one full investigation through OpenClaw (`openclaw agent --agent orbital
-     --thinking high --json --message <kickoff>`).
+     --thinking medium --json --message <kickoff>`).
   3. Print a structured summary: tool calls made, assistant text events, verdict
      written, time elapsed.
   4. Report PASS / FAIL against the Feature 3 acceptance criteria:
@@ -45,10 +45,8 @@ HOURS_TO_TCA = 12
 
 # Acceptance criteria
 MIN_TOOL_CALLS = 3
-# 600s = the timeout we pass to `openclaw agent`. With --thinking high, full
-# investigations realistically take 4-10 minutes. Cut to ~300 if you drop the
-# thinking level.
-MAX_DURATION_SECONDS = 600
+# 300s aligns with kickoff default timeout (240s OpenClaw + buffer).
+MAX_DURATION_SECONDS = 300
 
 
 def _ensure_scenario_exists() -> str:

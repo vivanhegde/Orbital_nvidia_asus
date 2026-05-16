@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from orbital_api.cache import screening_cache
 from orbital_api.positions import warm_default_sector_positions
 from orbital_api.routes import (
+    agent_stream_route,
     catalog,
     conjunction_history,
     conjunctions,
@@ -59,6 +60,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(agent_stream_route.router)
 app.include_router(catalog.router)
 app.include_router(sector_route.router)
 app.include_router(conjunctions.router)
@@ -89,7 +91,8 @@ def root() -> dict[str, object]:
             "memory_recent": "/api/memory/recent",
             "memory_asset": "/api/memory/asset/{norad_id}",
             "verdicts_pending": "/api/verdicts/pending",
-            "dev_synthesize": "POST /api/dev/synthesize-verdict",
+            "agent_event": "POST /api/agent/event",
+            "agent_stream": "GET /api/agent/stream",
             "space_weather": "/api/space-weather",
             "screening_refresh": "POST /api/screening/refresh",
         },

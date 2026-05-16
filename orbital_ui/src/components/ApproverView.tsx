@@ -95,7 +95,9 @@ export function ApproverView({ onNavigate }: ApproverViewProps) {
           verdict={v}
           onApprove={() => approveMut.mutate({ id: v.verdict_id })}
           onReject={() => rejectMut.mutate({ id: v.verdict_id })}
-          approving={approveMut.isPending}
+          approving={
+            approveMut.isPending && approveMut.variables?.id === v.verdict_id
+          }
         />
       ))}
 

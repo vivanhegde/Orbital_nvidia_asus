@@ -187,8 +187,8 @@ function Dashboard(): React.ReactElement {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#060b14] text-slate-200 font-mono text-sm p-4 gap-[10px]">
-      
+    <div className="flex flex-col h-screen overflow-hidden bg-[#060b14] text-slate-200 font-mono text-sm p-4 gap-[10px]">
+
       {/* NavBar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -397,7 +397,7 @@ function Dashboard(): React.ReactElement {
       </div>
 
       {/* Agent Activity Panel — live SSE stream from /api/agent/stream */}
-      <div className="mt-auto border border-mission-border bg-mission-panel rounded-lg flex flex-col overflow-hidden h-[220px]">
+      <div className="flex-1 min-h-[260px] border border-mission-border bg-mission-panel rounded-lg flex flex-col overflow-hidden">
         <div className="px-[14px] py-[8px] border-b border-mission-border bg-[rgba(255,255,255,0.02)] flex justify-between items-center shrink-0">
           <span>Agent activity</span>
           <div className="flex items-center gap-1.5">
@@ -405,7 +405,10 @@ function Dashboard(): React.ReactElement {
             <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-500 text-[10px] font-bold tracking-widest">LIVE</span>
           </div>
         </div>
-        <AgentReasoningStream className="flex flex-col gap-1 p-3 bg-[#060b14] text-xs font-mono w-full flex-1 overflow-y-auto" />
+        <AgentReasoningStream
+          className="grid grid-cols-[68px_60px_1fr] gap-x-2 gap-y-0.5 p-3 bg-[#060b14] text-xs font-mono w-full flex-1 overflow-y-auto auto-rows-min content-start"
+          onNavigate={setCurrentView}
+        />
       </div>
       
     </div>

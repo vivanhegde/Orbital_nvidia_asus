@@ -98,8 +98,17 @@ async def cmd_smoke(config: AgentConfig) -> int:
 
 
 async def cmd_run(config: AgentConfig) -> int:
-    print("--run is not implemented yet — Feature 4 (runner) builds this loop.")
-    return 2
+    """Run the autonomous polling sidecar (Feature 4)."""
+    from orbital_agent.runner import run_async
+
+    log = logging.getLogger("orbital_agent.run")
+    log.info(
+        "Starting orbital agent sidecar (model=%s, openclaw=%s, db=%s)",
+        config.ollama_model,
+        config.openclaw_gateway_url,
+        config.db_path,
+    )
+    return await run_async(config)
 
 
 def cmd_investigate(config: AgentConfig, event_id: str) -> int:

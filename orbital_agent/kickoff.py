@@ -99,7 +99,7 @@ def build_kickoff(event: ConjunctionEventRecord) -> str:
         tca=event.tca.astimezone(timezone.utc).isoformat(),
         miss_km=event.initial_miss_distance_km,
         initial_pc=event.initial_pc,
-        rel_v_kms=event.related_velocity_km_s,
+        rel_v_kms=event.relative_velocity_km_s,
         first_detected_at=event.first_detected_at.astimezone(timezone.utc).isoformat(),
         kp_index=kp_index,
         geomag_storm_level=geomag_storm_level,

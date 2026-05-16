@@ -59,3 +59,22 @@ export function formatPcOneSigFig(pc: number): string {
   if (pc === 0) return "0.0e0";
   return pc.toExponential(1);
 }
+
+export function formatRelativeFromNow(iso: string): string {
+  try {
+    const t = new Date(iso).getTime();
+    if (!isValidTimeMs(t)) return FALLBACK;
+    const secRaw = Math.round((t - Date.now()) / 1000);
+    const past = secRaw < 0;
+    const sec = Math.abs(secRaw);
+    if (sec < 60) return past ? `${sec}s ago` : `in ${sec}s`;
+    const m = Math.floor(sec / 60);
+    if (m < 60) return past ? `${m}m ago` : `in ${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return past ? `${h}h ago` : `in ${h}h`;
+    const d = Math.floor(h / 24);
+    return past ? `${d}d ago` : `in ${d}d`;
+  } catch {
+    return FALLBACK;
+  }
+}

@@ -14,10 +14,13 @@ import {
   ACTIVE_SECTOR_ID,
   getCatalogPositions,
   getCatalogSummary,
+  getConjunctionEvent,
   getFlaggedConjunctions,
   getSectorCurrent,
 } from "@/lib/api";
+import { conjunctionCameraTarget } from "@/lib/conjunctionCamera";
 import type { SatellitePosition } from "@/lib/types";
+import { toFlaggedConjunction } from "@/lib/types";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,10 +109,28 @@ function Dashboard(): React.ReactElement {
     [sectorQuery.data?.sector.altitude_min_km, sectorQuery.data?.sector.altitude_max_km],
   );
 
-  const selectedEvent = React.useMemo(
-    () => conjunctions.find((c) => c.id === selectedEventId) ?? null,
-    [conjunctions, selectedEventId]
+  const eventFromQueue = React.useMemo(
+    () => (selectedEventId ? conjunctions.find((c) => c.id === selectedEventId) ?? null : null),
+    [conjunctions, selectedEventId],
   );
+
+  const persistedEventQuery = useQuery({
+    queryKey: ["conjunction-event", selectedEventId],
+    queryFn: () => getConjunctionEvent(selectedEventId!),
+    enabled: Boolean(selectedEventId) && !eventFromQueue,
+  });
+
+  const selectedEvent = React.useMemo(() => {
+    if (!selectedEventId) return null;
+    if (eventFromQueue) return eventFromQueue;
+    if (persistedEventQuery.data) return toFlaggedConjunction(persistedEventQuery.data);
+    return null;
+  }, [selectedEventId, eventFromQueue, persistedEventQuery.data]);
+
+  const detailLoading =
+    Boolean(selectedEventId) && !eventFromQueue && persistedEventQuery.isLoading;
+  const detailFetchError =
+    Boolean(selectedEventId) && !eventFromQueue && persistedEventQuery.isError;
 
   const handlePointClick = React.useCallback(
     (p: SatellitePosition) => {
@@ -137,7 +158,35 @@ function Dashboard(): React.ReactElement {
   }
 
   if (currentView === "memory") {
-    return <MemoryLogView onNavigate={setCurrentView} />;
+    return (
+      <MemoryLogView
+        onNavigate={setCurrentView}
+        onSelectEvent={(eventId) => setSelectedEventId(eventId)}
+      />
+    );
+  }
+
+  if (detailLoading) {
+    return (
+      <div className="min-h-screen bg-[#060b14] flex items-center justify-center text-slate-400 font-mono text-sm">
+        Loading conjunction event…
+      </div>
+    );
+  }
+
+  if (detailFetchError) {
+    return (
+      <div className="min-h-screen bg-[#060b14] flex flex-col items-center justify-center gap-4 text-slate-200 font-mono p-6">
+        <p className="text-red-400">Could not load event from persistence.</p>
+        <button
+          type="button"
+          className="text-[#378add] underline"
+          onClick={() => setSelectedEventId(null)}
+        >
+          Back
+        </button>
+      </div>
+    );
   }
 
   if (selectedEvent) {
@@ -304,7 +353,12 @@ function Dashboard(): React.ReactElement {
                     key={c.id}
                     onClick={() => {
                       setLockedEventId(c.id);
-                      globeRef.current?.flyToMidpoint(c.obj1.norad_id, c.obj2.norad_id);
+                      const aim = conjunctionCameraTarget(c);
+                      if (aim) {
+                        globeRef.current?.flyTo(aim.lat, aim.lon, aim.alt);
+                      } else {
+                        globeRef.current?.flyToMidpoint(c.obj1.norad_id, c.obj2.norad_id);
+                      }
                     }}
                     className={`flex items-center px-[14px] h-[40px] border-b border-[rgba(255,255,255,0.06)] cursor-pointer hover:bg-white/5 transition-colors ${
                       isUrgent ? "bg-[rgba(239,68,68,0.06)]" : ""

@@ -7,6 +7,9 @@
 *.swp
 *.swo
 
+# SQLite operator DB (generated; do not commit)
+orbital_data/orbital.db
+
 # Environment variables
 .env
 .env.local

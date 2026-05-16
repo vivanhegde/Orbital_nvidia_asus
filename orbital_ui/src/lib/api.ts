@@ -1,7 +1,12 @@
 import type {
   CatalogObjectResponse,
   CatalogSummary,
+  ConjunctionEventDetailResponse,
   FlaggedResponse,
+  MemoryAssetResponse,
+  MemoryRecentResponse,
+  PcHistoryResponse,
+  PendingVerdictsResponse,
   SatellitePosition,
   SectorCurrentResponse,
   SpaceWeather,
@@ -87,4 +92,94 @@ export async function getCatalogPositionsNoradsAt(
   sp.set("norad_ids", noradIds.join(","));
   sp.set("at", atIso);
   return apiGet<SatellitePosition[]>(`/api/catalog/positions?${sp.toString()}`);
+}
+
+const JSON_HDR = {
+  Accept: "application/json",
+  "Content-Type": "application/json",
+};
+
+export async function getPcHistory(
+  eventId: string,
+  hours: number,
+): Promise<PcHistoryResponse> {
+  const q = new URLSearchParams({ hours: String(hours) });
+  return apiGet<PcHistoryResponse>(
+    `/api/conjunctions/${encodeURIComponent(eventId)}/pc-history?${q}`,
+  );
+}
+
+export async function getConjunctionEvent(
+  eventId: string,
+): Promise<ConjunctionEventDetailResponse> {
+  return apiGet<ConjunctionEventDetailResponse>(
+    `/api/conjunctions/event/${encodeURIComponent(eventId)}`,
+  );
+}
+
+export async function getMemoryRecent(limit = 50): Promise<MemoryRecentResponse> {
+  return apiGet<MemoryRecentResponse>(`/api/memory/recent?limit=${limit}`);
+}
+
+export async function getMemoryAsset(
+  noradId: number,
+  limit = 20,
+): Promise<MemoryAssetResponse> {
+  return apiGet<MemoryAssetResponse>(
+    `/api/memory/asset/${noradId}?limit=${limit}`,
+  );
+}
+
+export async function getPendingVerdicts(): Promise<PendingVerdictsResponse> {
+  return apiGet<PendingVerdictsResponse>("/api/verdicts/pending");
+}
+
+export async function approveVerdict(
+  verdictId: string,
+  notes?: string,
+): Promise<unknown> {
+  const res = await fetch(
+    `/api/verdicts/${encodeURIComponent(verdictId)}/approve`,
+    {
+      method: "POST",
+      headers: JSON_HDR,
+      body: JSON.stringify({ notes: notes ?? null }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`approve failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function rejectVerdict(
+  verdictId: string,
+  notes?: string,
+): Promise<unknown> {
+  const res = await fetch(
+    `/api/verdicts/${encodeURIComponent(verdictId)}/reject`,
+    {
+      method: "POST",
+      headers: JSON_HDR,
+      body: JSON.stringify({ notes: notes ?? null }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`reject failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function synthesizeDemoVerdict(
+  eventId: string,
+): Promise<{ verdict_id: string }> {
+  const res = await fetch("/api/dev/synthesize-verdict", {
+    method: "POST",
+    headers: JSON_HDR,
+    body: JSON.stringify({ event_id: eventId }),
+  });
+  if (!res.ok) {
+    throw new Error(`synthesize failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ verdict_id: string }>;
 }

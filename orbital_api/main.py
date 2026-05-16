@@ -19,17 +19,35 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from orbital_api.cache import screening_cache
 from orbital_api.positions import warm_default_sector_positions
-from orbital_api.routes import catalog, conjunctions, screening_route, sector_route, weather
+from orbital_api.routes import (
+    catalog,
+    conjunction_history,
+    conjunctions,
+    dev_route,
+    memory_route,
+    screening_route,
+    sector_route,
+    verdicts_route,
+    weather,
+)
+from orbital_api.screening_jobs import configure_event_store
+from orbital_persist.store import EventStore
 
 logging.basicConfig(level=logging.INFO)
+
+_EVENT_DB = _ROOT / "orbital_data" / "orbital.db"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    event_store = EventStore(_EVENT_DB)
+    configure_event_store(event_store)
+    app.state.event_store = event_store
     screening_cache.start_worker(60.0)
     threading.Thread(target=warm_default_sector_positions, daemon=True).start()
     yield
     screening_cache.stop_worker()
+    event_store.close()
 
 
 app = FastAPI(title="Orbital API", version="0.1.0", lifespan=lifespan)
@@ -44,8 +62,12 @@ app.add_middleware(
 app.include_router(catalog.router)
 app.include_router(sector_route.router)
 app.include_router(conjunctions.router)
+app.include_router(conjunction_history.router)
 app.include_router(weather.router)
 app.include_router(screening_route.router)
+app.include_router(memory_route.router)
+app.include_router(verdicts_route.router)
+app.include_router(dev_route.router)
 
 
 @app.get("/")
@@ -62,6 +84,12 @@ def root() -> dict[str, object]:
             "catalog_object": "/api/catalog/object/{norad_id}",
             "sector_current": "/api/sector/current",
             "conjunctions_flagged": "/api/conjunctions/flagged",
+            "conjunctions_event": "/api/conjunctions/event/{event_id}",
+            "pc_history": "/api/conjunctions/{event_id}/pc-history",
+            "memory_recent": "/api/memory/recent",
+            "memory_asset": "/api/memory/asset/{norad_id}",
+            "verdicts_pending": "/api/verdicts/pending",
+            "dev_synthesize": "POST /api/dev/synthesize-verdict",
             "space_weather": "/api/space-weather",
             "screening_refresh": "POST /api/screening/refresh",
         },

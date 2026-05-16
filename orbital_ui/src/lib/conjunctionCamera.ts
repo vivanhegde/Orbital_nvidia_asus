@@ -49,14 +49,31 @@ export function conjunctionNadirFromPositions(
 }
 
 /**
+ * Maps miss distance (km) to react-globe.gl `altitude` (radii above surface).
+ * Tighter misses get a closer framing; large miss distances stay more overview.
+ */
+export function globeAltitudeForMissKm(missKm: number): number {
+  const m = Number.isFinite(missKm) ? Math.max(0, missKm) : 0;
+  if (m < 0.5) return 1.1;
+  if (m < 2) return 1.15;
+  if (m < 20) return 1.22 + Math.min(0.2, m * 0.004);
+  const log = Math.log10(m + 1);
+  return Math.min(2.8, 1.35 + log * 0.18);
+}
+
+/**
  * Camera altitude for react-globe.gl `pointOfView` (in globe-radii above surface).
  * Lower = more zoomed in. Default overview is ~2.5; we zoom much closer for conjunctions.
  */
-export function globeAltitudeForMissKm(missKm: number): number {
-  const d = Math.max(0, missKm);
-  if (d < 2) return 0.45;
-  if (d < 30) return 0.7;
-  if (d < 200) return 1.0;
-  if (d < 2_000) return 1.4;
-  return 1.8;
+export function conjunctionCameraTarget(
+  c: FlaggedConjunction,
+): { lat: number; lon: number; alt: number } | null {
+  if (typeof c.camera_aim_lat === "number" && typeof c.camera_aim_lon === "number") {
+    return {
+      lat: c.camera_aim_lat,
+      lon: c.camera_aim_lon,
+      alt: globeAltitudeForMissKm(c.miss_distance_km),
+    };
+  }
+  return null;
 }

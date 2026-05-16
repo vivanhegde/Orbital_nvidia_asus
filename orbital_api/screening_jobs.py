@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from orbital_persist.store import EventStore
 
 
 def _bootstrap_paths() -> None:
@@ -25,10 +28,11 @@ _bootstrap_paths()
 from models import TLE  # noqa: E402
 from orbital_engine.pc import compute_pc  # noqa: E402
 from orbital_engine.screening import screen_conjunctions  # noqa: E402
-from store import get_satcat_record, list_all_tles  # noqa: E402
+from store import get_satcat_record, get_space_weather, list_all_tles  # noqa: E402
 
 from orbital_api.geo import camera_aim_from_teme_pair_km  # noqa: E402
 from orbital_api.sector import STARLINK_550_SECTOR, list_tles_in_sector  # noqa: E402
+from orbital_persist.ids import covariance_inflation_from_kp, stable_event_id  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +45,20 @@ _SCREEN_GROUPS_OTHER = frozenset(
     }
 )
 _STARLINK_LIMIT = 500
+
+_event_store: EventStore | None = None
+_screening_pass_index: int = 0
+_last_expire_monotonic: float = 0.0
+
+
+def configure_event_store(store: EventStore | None) -> None:
+    """Set the SQLite EventStore used for persistence (or None to disable)."""
+    global _event_store
+    _event_store = store
+
+
+def get_event_store() -> EventStore | None:
+    return _event_store
 
 
 def build_screening_catalog(all_tles: list[TLE]) -> list[TLE]:
@@ -68,6 +86,8 @@ def _sat_type(rec: object | None) -> str:
 
 def run_screening_job(cache: Any) -> None:
     """Execute one screening pass and write results into ``cache``."""
+    global _screening_pass_index, _last_expire_monotonic
+
     if not cache.try_begin_screening():
         log.info("Screening skipped: already running")
         return
@@ -80,8 +100,14 @@ def run_screening_job(cache: Any) -> None:
         all_tles = list_all_tles()
         full_sector = list_tles_in_sector(all_tles, STARLINK_550_SECTOR)
         catalog = full_sector[:500]
+
+        space_weather = get_space_weather()
+        kp = space_weather.kp_index
+        covariance_inflation = covariance_inflation_from_kp(kp)
         log.info(
-            "Screening sector catalog size=%d (of %d in sector shell)",
+            "Screening covariance_inflation=%.4f from Kp=%.2f (catalog size=%d of %d in sector)",
+            covariance_inflation,
+            kp,
             len(catalog),
             len(full_sector),
         )
@@ -102,12 +128,14 @@ def run_screening_job(cache: Any) -> None:
             pc_val = compute_pc(
                 c.obj1_state_at_tca,
                 c.obj2_state_at_tca,
+                covariance_inflation=covariance_inflation,
             )
             band = _pc_band(pc_val)
             r1 = get_satcat_record(c.obj1_norad_id)
             r2 = get_satcat_record(c.obj2_norad_id)
+            event_id = stable_event_id(c.obj1_norad_id, c.obj2_norad_id, c.tca)
             row: dict[str, Any] = {
-                "id": c.id,
+                "id": event_id,
                 "obj1": {
                     "norad_id": c.obj1_norad_id,
                     "name": c.obj1_name,
@@ -143,6 +171,31 @@ def run_screening_job(cache: Any) -> None:
             rows.append(row)
 
         rows.sort(key=lambda r: float(r["pc"]), reverse=True)
+
+        if _event_store is not None:
+            try:
+                _event_store.record_screening_pass(
+                    candidates,
+                    space_weather,
+                    covariance_inflation,
+                    now,
+                )
+            except Exception as exc:
+                log.exception("EventStore.record_screening_pass failed: %s", exc)
+
+            _screening_pass_index += 1
+            should_expire = (
+                _screening_pass_index % 10 == 0
+                or (time.monotonic() - _last_expire_monotonic) >= 3600.0
+            )
+            if should_expire:
+                try:
+                    nexp = _event_store.expire_stale_events(older_than_hours=6)
+                    if nexp:
+                        log.info("Expired %d stale conjunction events", nexp)
+                    _last_expire_monotonic = time.monotonic()
+                except Exception as exc:
+                    log.exception("expire_stale_events failed: %s", exc)
 
         with cache._data_lock:
             cache.conjunctions = rows

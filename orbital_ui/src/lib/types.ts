@@ -93,3 +93,105 @@ export interface CatalogObjectResponse {
     };
   };
 }
+
+/** --- Persistence / deep-link API --- */
+
+export interface ConjunctionEventDetailResponse {
+  id: string;
+  obj1: ConjunctionObj;
+  obj2: ConjunctionObj;
+  tca: string;
+  miss_distance_km: number;
+  relative_velocity_km_s: number;
+  pc: number;
+  pc_band: "noise" | "watch" | "action";
+  detected_at: string;
+  status: string;
+  initial_pc: number;
+}
+
+export function toFlaggedConjunction(row: ConjunctionEventDetailResponse): FlaggedConjunction {
+  return {
+    id: row.id,
+    obj1: row.obj1,
+    obj2: row.obj2,
+    tca: row.tca,
+    miss_distance_km: row.miss_distance_km,
+    relative_velocity_km_s: row.relative_velocity_km_s,
+    pc: row.pc,
+    pc_band: row.pc_band,
+    detected_at: row.detected_at,
+  };
+}
+
+export interface PcHistorySnapshot {
+  snapshot_at: string;
+  pc: number;
+  miss_distance_km: number;
+  covariance_inflation: number;
+  kp_index: number | null;
+  space_weather_snapshot: SpaceWeather | null;
+}
+
+export interface PcHistoryResponse {
+  snapshots: PcHistorySnapshot[];
+}
+
+export interface MemoryEventRow {
+  event_id: string;
+  obj1_name: string;
+  obj2_name: string;
+  obj1_norad_id: number;
+  obj2_norad_id: number;
+  tca: string;
+  initial_pc: number;
+  status: string;
+  last_seen_at: string;
+  first_detected_at: string;
+}
+
+export interface MemoryRecentResponse {
+  events: MemoryEventRow[];
+}
+
+export interface MemoryAssetResponse {
+  norad_id: number;
+  events: MemoryEventRow[];
+}
+
+export interface ManeuverPlanOption {
+  label: string;
+  burns_ms?: number[];
+  total_delta_v_ms?: number;
+  events_resolved?: number;
+}
+
+export interface SyntheticPlanPayload {
+  recommended: string;
+  plans: Record<string, ManeuverPlanOption>;
+}
+
+export interface VerdictEnriched {
+  verdict_id: string;
+  event_id: string;
+  issued_at: string;
+  verdict_type: string;
+  reasoning: string;
+  plan: SyntheticPlanPayload | null;
+  operator_decision: string | null;
+  operator_decided_at: string | null;
+  operator_notes: string | null;
+  event?: {
+    obj1_name: string;
+    obj2_name: string;
+    obj1_norad_id: number;
+    obj2_norad_id: number;
+    tca: string;
+  };
+  current_pc?: number;
+  current_miss_km?: number;
+}
+
+export interface PendingVerdictsResponse {
+  verdicts: VerdictEnriched[];
+}

@@ -17,6 +17,7 @@ for _p in (_OD, _ROOT):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from orbital_api import agent_router
 from orbital_api.cache import screening_cache
 from orbital_api.positions import warm_default_sector_positions
 from orbital_api.routes import (
@@ -68,6 +69,8 @@ app.include_router(screening_route.router)
 app.include_router(memory_route.router)
 app.include_router(verdicts_route.router)
 app.include_router(dev_route.router)
+app.include_router(agent_router.router, prefix="/api")
+app.include_router(agent_router.recommend_compat_router, prefix="/api")
 
 
 @app.get("/")
@@ -92,6 +95,9 @@ def root() -> dict[str, object]:
             "dev_synthesize": "POST /api/dev/synthesize-verdict",
             "space_weather": "/api/space-weather",
             "screening_refresh": "POST /api/screening/refresh",
+            "agent_status": "/api/agent/status",
+            "agent_recommend": "POST /api/agent/recommend",
+            "recommend_compat": "POST /api/recommend",
         },
         "ui": "Run orbital_ui (npm run dev) at http://localhost:5173 for the dashboard.",
     }

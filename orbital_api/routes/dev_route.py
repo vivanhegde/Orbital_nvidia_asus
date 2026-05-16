@@ -28,26 +28,30 @@ def synthesize_verdict(
         "recommended": "B",
         "plans": {
             "B": {
-                "label": "Plan B",
+                "label": "Plan B — split burn",
                 "burns_ms": [0.15, 0.12],
                 "total_delta_v_ms": 0.27,
                 "events_resolved": 1,
             },
             "A": {
-                "label": "Plan A",
+                "label": "Plan A — single burn",
                 "burns_ms": [0.35],
                 "total_delta_v_ms": 0.35,
                 "events_resolved": 1,
             },
         },
+        "urgency": "act_within_24hr",
     }
     reasoning = (
         f"Synthetic demo verdict: recommend prograde split burn for {ev.obj1_name} "
         f"vs {ev.obj2_name}; covariance-inflated Pc exceeds watch threshold."
     )
+    # Use "recommended" so the agent's verdicts and synthesized ones share
+    # the same surface — both appear in the Approver queue and render via
+    # the same AssessmentReport component.
     vid = store.record_verdict(
         body.event_id,
-        "recommend_maneuver",
+        "recommended",
         reasoning,
         plan,
     )

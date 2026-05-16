@@ -235,21 +235,32 @@ function Dashboard(): React.ReactElement {
               {isPaused ? "▶ Play" : "⏸ Pause"}
             </button>
             <div className="w-px h-4 bg-mission-border mx-1"></div>
-            <button
-              className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${showOrbits ? 'bg-[#378add]/20 border-[#378add]/50 text-[#378add]' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
-              onClick={() => setShowOrbits(!showOrbits)}
-            >
-              Orbits
-            </button>
-            <button
-              className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${showLabels ? 'bg-[#378add]/20 border-[#378add]/50 text-[#378add]' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
-              onClick={() => setShowLabels(!showLabels)}
-            >
-              Labels
-            </button>
+            {threatsOnly && (
+              <>
+                <button
+                  className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${showOrbits ? 'bg-[#378add]/20 border-[#378add]/50 text-[#378add]' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
+                  onClick={() => setShowOrbits(!showOrbits)}
+                >
+                  Orbits
+                </button>
+                <button
+                  className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${showLabels ? 'bg-[#378add]/20 border-[#378add]/50 text-[#378add]' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
+                  onClick={() => setShowLabels(!showLabels)}
+                >
+                  Labels
+                </button>
+              </>
+            )}
             <button
               className={`px-3 py-1.5 text-xs border rounded font-bold transition-colors ${threatsOnly ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.1)] text-[#7a9ab0] hover:bg-[rgba(255,255,255,0.08)]'}`}
-              onClick={() => setThreatsOnly(!threatsOnly)}
+              onClick={() => {
+                const nextThreatsOnly = !threatsOnly;
+                setThreatsOnly(nextThreatsOnly);
+                if (!nextThreatsOnly) {
+                  setShowOrbits(false);
+                  setShowLabels(false);
+                }
+              }}
             >
               Threats only
             </button>

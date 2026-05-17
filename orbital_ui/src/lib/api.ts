@@ -134,6 +134,10 @@ export async function getPendingVerdicts(): Promise<PendingVerdictsResponse> {
   return apiGet<PendingVerdictsResponse>("/api/verdicts/pending");
 }
 
+export async function getDecidedVerdicts(limit = 50): Promise<PendingVerdictsResponse> {
+  return apiGet<PendingVerdictsResponse>(`/api/verdicts/decided?limit=${limit}`);
+}
+
 export async function approveVerdict(
   verdictId: string,
   notes?: string,

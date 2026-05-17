@@ -329,6 +329,23 @@ class EventStore:
             self._conn.commit()
         return vid
 
+    def list_decided_verdicts(self, limit: int = 50) -> list[VerdictRecord]:
+        """Verdicts the operator has approved or rejected, newest first."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT * FROM verdicts
+                WHERE operator_decision IN ('approved', 'rejected')
+                ORDER BY operator_decided_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            )
+            rows = cur.fetchall()
+            colnames = [d[0] for d in cur.description]
+        return [self._row_to_verdict(dict(zip(colnames, r))) for r in rows]
+
     def list_pending_verdicts(self) -> list[VerdictRecord]:
         with self._lock:
             cur = self._conn.cursor()

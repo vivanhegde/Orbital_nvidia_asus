@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from orbital_api.deps import require_event_store
@@ -295,6 +295,26 @@ def verdicts_pending(
         if enriched:
             verdicts.append(enriched)
     return {"verdicts": verdicts}
+
+
+@router.get("/decided")
+def verdicts_decided(
+    limit: int = Query(50, ge=1, le=200),
+    store: EventStore = Depends(require_event_store),
+) -> dict[str, object]:
+    """Verdicts already decided by the operator (approved or rejected).
+
+    Used by the Memory tab's decision log. Reuses the same enrichment as
+    the pending endpoint so the UI can render the same AssessmentReport
+    shape if it wants — but the row layout in Memory is more compact.
+    """
+    decided = store.list_decided_verdicts(limit=limit)
+    out: list[dict[str, Any]] = []
+    for v in decided:
+        enriched = _enrich_verdict(store, v.verdict_id)
+        if enriched:
+            out.append(enriched)
+    return {"verdicts": out}
 
 
 class OperatorDecisionBody(BaseModel):

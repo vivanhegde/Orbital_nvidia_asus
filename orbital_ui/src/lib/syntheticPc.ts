@@ -285,6 +285,120 @@ export function syntheticReasoningForEvent(eventId: string): AgentEvent[] {
   });
 }
 
+// ── Per-asset synthetic profile ───────────────────────────────────────────
+//
+// SATCAT doesn't publish fuel budgets, mission criticality, or operator
+// notes. Each asset gets a deterministic profile derived from its NORAD ID
+// so the demo shows believable per-satellite variation that stays stable
+// across reloads.
+
+export interface SyntheticAssetProfile {
+  /** Total Δv budget at start of life (m/s). */
+  delta_v_budget_mps: number;
+  /** Fraction consumed so far (0..1). */
+  fuel_used_pct: number;
+  /** Remaining Δv (m/s). */
+  delta_v_remaining_mps: number;
+  /** Mass dry (kg). */
+  mass_kg: number;
+  /** Radar cross-section equivalent (m²). */
+  rcs_m2: number;
+  /** Mission criticality bucket. */
+  mission_criticality: "critical" | "standard" | "experimental";
+  /** Operator (synthesised, only for satellites not in the manual profiles). */
+  operator: string;
+}
+
+const STARLINK_OPERATORS = ["SpaceX"];
+const COSMOS_OPERATORS = ["—"];
+const ISS_OPERATORS = ["NASA/Roscosmos"];
+
+function pickOperator(name: string, rng: () => number): string {
+  const upper = name.toUpperCase();
+  if (upper.includes("STARLINK")) return STARLINK_OPERATORS[0]!;
+  if (upper.includes("ISS")) return ISS_OPERATORS[0]!;
+  if (upper.includes("COSMOS") || upper.includes("DEB") || upper.includes("FENGYUN"))
+    return COSMOS_OPERATORS[0]!;
+  // Unknown — pick one of a few plausible commercial operators
+  const choices = ["Planet Labs", "OneWeb", "Iridium NEXT", "BlackSky", "Spire"];
+  return choices[Math.floor(rng() * choices.length)]!;
+}
+
+export function syntheticAssetProfile(
+  noradId: number,
+  name: string,
+  isManeuverable: boolean,
+): SyntheticAssetProfile {
+  const rng = mulberry32(hashString(`${noradId}::profile`));
+
+  // Δv budget: Starlinks ~50 m/s, ISS ~hundreds, others ~10-50 m/s
+  const upper = name.toUpperCase();
+  let budget: number;
+  if (upper.includes("ISS")) {
+    budget = 280 + rng() * 60; // 280–340 m/s
+  } else if (upper.includes("STARLINK")) {
+    budget = 40 + rng() * 25; // 40–65 m/s
+  } else if (isManeuverable) {
+    budget = 18 + rng() * 35; // 18–53 m/s
+  } else {
+    // Non-maneuverable objects have no budget.
+    return {
+      delta_v_budget_mps: 0,
+      fuel_used_pct: 0,
+      delta_v_remaining_mps: 0,
+      mass_kg: 50 + Math.floor(rng() * 1500),
+      rcs_m2: Number((0.05 + rng() * 4).toFixed(2)),
+      mission_criticality: "experimental",
+      operator: pickOperator(name, rng),
+    };
+  }
+  const usedPct = rng() * 0.6; // 0–60% consumed
+  const remaining = budget * (1 - usedPct);
+
+  // Mass: Starlinks ~260 kg, ISS ~420,000 kg, generic 100-2000 kg
+  let mass: number;
+  if (upper.includes("ISS")) mass = 420_000;
+  else if (upper.includes("STARLINK")) mass = 260 + Math.floor(rng() * 40);
+  else mass = 100 + Math.floor(rng() * 1900);
+
+  // RCS: bigger satellites generally bigger RCS
+  const rcs = upper.includes("ISS")
+    ? 399 + rng() * 10
+    : upper.includes("STARLINK")
+      ? 8 + rng() * 4
+      : 0.3 + rng() * 6;
+
+  // Mission criticality
+  const critRoll = rng();
+  const crit =
+    upper.includes("ISS")
+      ? "critical"
+      : critRoll < 0.15
+        ? "critical"
+        : critRoll < 0.85
+          ? "standard"
+          : "experimental";
+
+  return {
+    delta_v_budget_mps: Number(budget.toFixed(1)),
+    fuel_used_pct: Number(usedPct.toFixed(2)),
+    delta_v_remaining_mps: Number(remaining.toFixed(1)),
+    mass_kg: mass,
+    rcs_m2: Number(rcs.toFixed(2)),
+    mission_criticality: crit,
+    operator: pickOperator(name, rng),
+  };
+}
+
+/** Heuristic — debris and rocket bodies aren't maneuverable. */
+export function inferManeuverable(objectType: string | undefined): boolean {
+  if (!objectType) return false;
+  const t = objectType.toUpperCase();
+  if (t.includes("DEB")) return false;
+  if (t.includes("R/B") || t.includes("ROCKET")) return false;
+  return true; // payload / unknown active object
+}
+
 export function patternSummary(pattern: PcPattern): string {
   switch (pattern) {
     case "declining_dismissal":

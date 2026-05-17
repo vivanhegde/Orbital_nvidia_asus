@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart,
   Area,
@@ -9,13 +10,29 @@ import {
 } from "recharts";
 import { AgentReasoningStream } from "./AgentReasoningStream";
 import type { FlaggedConjunction } from "@/lib/types";
+import { getCatalogObject } from "@/lib/api";
 import { formatUtcAbsolute } from "@/lib/time";
 import {
+  inferManeuverable,
   patternSummary,
+  syntheticAssetProfile,
   syntheticPattern,
   syntheticPcHistory,
   syntheticReasoningForEvent,
 } from "@/lib/syntheticPc";
+
+function hoursAgo(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return ms / 3_600_000;
+}
+
+function formatTleAge(hours: number | null): string {
+  if (hours == null) return "—";
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  return `${(hours / 24).toFixed(1)}d`;
+}
 
 export interface ConjunctionDetailViewProps {
   event: FlaggedConjunction;
@@ -50,6 +67,45 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
   const lastSnap = snaps.length > 0 ? snaps[snaps.length - 1] : null;
   const sw = lastSnap?.space_weather_snapshot;
 
+  // Real TLE data per object (epoch → derive age in hours).
+  const obj1Query = useQuery({
+    queryKey: ["catalog-object", event.obj1.norad_id],
+    queryFn: () => getCatalogObject(event.obj1.norad_id),
+    staleTime: 60_000,
+  });
+  const obj2Query = useQuery({
+    queryKey: ["catalog-object", event.obj2.norad_id],
+    queryFn: () => getCatalogObject(event.obj2.norad_id),
+    staleTime: 60_000,
+  });
+  const tleAge1 = hoursAgo(obj1Query.data?.tle?.epoch);
+  const tleAge2 = hoursAgo(obj2Query.data?.tle?.epoch);
+
+  // Maneuverability + per-asset synthetic profile (Δv budget, fuel %, mass, RCS, …).
+  const obj1Maneuverable = React.useMemo(
+    () => inferManeuverable(event.obj1.type),
+    [event.obj1.type],
+  );
+  const obj2Maneuverable = React.useMemo(
+    () => inferManeuverable(event.obj2.type),
+    [event.obj2.type],
+  );
+  const obj1Profile = React.useMemo(
+    () => syntheticAssetProfile(event.obj1.norad_id, event.obj1.name, obj1Maneuverable),
+    [event.obj1.norad_id, event.obj1.name, obj1Maneuverable],
+  );
+  const obj2Profile = React.useMemo(
+    () => syntheticAssetProfile(event.obj2.norad_id, event.obj2.name, obj2Maneuverable),
+    [event.obj2.norad_id, event.obj2.name, obj2Maneuverable],
+  );
+
+  // Primary asset = whichever is maneuverable (if exactly one). Otherwise obj1.
+  const primaryProfile = obj1Maneuverable && !obj2Maneuverable
+    ? obj1Profile
+    : !obj1Maneuverable && obj2Maneuverable
+      ? obj2Profile
+      : obj1Profile;
+
   return (
     <div className="flex flex-col min-h-screen bg-[#060b14] text-slate-200 font-mono text-sm p-4 gap-[10px]">
       <div className="flex items-center justify-between">
@@ -82,12 +138,23 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
           <span className="text-xl text-slate-200 truncate">{event.obj1.name}</span>
         </div>
         <div className="bg-mission-panel border border-mission-border rounded-lg p-[10px] px-3 flex flex-col justify-between h-[80px]">
-          <span className="text-slate-400 text-xs">Delta-v budget</span>
-          <span className="text-xl text-cyan-400">42.5 m/s</span>
+          <span className="text-slate-400 text-xs">Δv budget (primary)</span>
+          <span className="text-xl text-cyan-400">
+            {primaryProfile.delta_v_remaining_mps > 0
+              ? `${primaryProfile.delta_v_remaining_mps.toFixed(1)} m/s`
+              : "n/a"}
+            <span className="text-[10px] text-slate-500 ml-2">
+              {primaryProfile.delta_v_budget_mps > 0
+                ? `of ${primaryProfile.delta_v_budget_mps.toFixed(0)}`
+                : ""}
+            </span>
+          </span>
         </div>
         <div className="bg-mission-panel border border-mission-border rounded-lg p-[10px] px-3 flex flex-col justify-between h-[80px]">
           <span className="text-slate-400 text-xs">TLE age (obj1 / obj2)</span>
-          <span className="text-xl text-slate-200">1.2h / 4.5h</span>
+          <span className="text-xl text-slate-200">
+            {formatTleAge(tleAge1)} / {formatTleAge(tleAge2)}
+          </span>
         </div>
         <div className="bg-[rgba(245,158,11,0.05)] border border-[rgba(245,158,11,0.1)] rounded-lg p-[10px] px-3 flex flex-col justify-between h-[80px]">
           <span className="text-slate-400 text-xs">Kp index</span>
@@ -185,43 +252,26 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
           <div className="px-[14px] py-[8px] border-b border-mission-border bg-[rgba(255,255,255,0.02)]">
             <span>Object Metadata</span>
           </div>
-          <div className="flex-1 p-5 flex flex-col gap-6 justify-center">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-semibold tracking-wider ${badgeColor}`}>
-                  {badgeText}
-                </span>
-                <span className="font-bold text-slate-200 text-base">{event.obj1.name}</span>
-              </div>
-              <div className="flex justify-between text-xs pl-1 mt-1">
-                <span className="text-slate-400">
-                  Type: <span className="text-slate-200 ml-1">{event.obj1.type}</span>
-                </span>
-                <span className="flex items-center gap-1.5 text-green-500 bg-green-500/10 px-2 py-0.5 rounded">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Maneuverable
-                </span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 pt-5 border-t border-[rgba(255,255,255,0.06)]">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-200 text-base pl-1">{event.obj2.name}</span>
-              </div>
-              <div className="flex justify-between text-xs pl-1 mt-1">
-                <span className="text-slate-400">
-                  Type: <span className="text-slate-200 ml-1">{event.obj2.type}</span>
-                </span>
-                <span className="flex items-center gap-1.5 text-red-500 bg-red-500/10 px-2 py-0.5 rounded">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Non-maneuverable
-                </span>
-              </div>
-            </div>
+          <div className="flex-1 p-5 flex flex-col gap-4 justify-center">
+            <ObjectMetadataBlock
+              isPrimary
+              badgeColor={badgeColor}
+              badgeText={badgeText}
+              name={event.obj1.name}
+              type={event.obj1.type}
+              maneuverable={obj1Maneuverable}
+              profile={obj1Profile}
+            />
+            <div className="border-t border-[rgba(255,255,255,0.06)]" />
+            <ObjectMetadataBlock
+              isPrimary={false}
+              badgeColor={badgeColor}
+              badgeText={badgeText}
+              name={event.obj2.name}
+              type={event.obj2.type}
+              maneuverable={obj2Maneuverable}
+              profile={obj2Profile}
+            />
           </div>
         </div>
       </div>
@@ -235,6 +285,81 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
           </div>
         </div>
         <AgentReasoningStream eventId={event.id} fallbackEvents={syntheticEvents} />
+      </div>
+    </div>
+  );
+}
+
+// ── ObjectMetadataBlock ──────────────────────────────────────────────────
+
+interface ObjectMetadataBlockProps {
+  isPrimary: boolean;
+  badgeColor: string;
+  badgeText: string;
+  name: string;
+  type: string;
+  maneuverable: boolean;
+  profile: ReturnType<typeof syntheticAssetProfile>;
+}
+
+function ObjectMetadataBlock({
+  isPrimary,
+  badgeColor,
+  badgeText,
+  name,
+  type,
+  maneuverable,
+  profile,
+}: ObjectMetadataBlockProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {isPrimary && (
+          <span className={`px-2 py-0.5 rounded-full text-[9px] font-semibold tracking-wider ${badgeColor}`}>
+            {badgeText}
+          </span>
+        )}
+        <span className="font-bold text-slate-200 text-base">{name}</span>
+        {maneuverable ? (
+          <span className="ml-auto flex items-center gap-1 text-green-500 bg-green-500/10 px-2 py-0.5 rounded text-[10px] font-semibold">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+            MANEUVERABLE
+          </span>
+        ) : (
+          <span className="ml-auto flex items-center gap-1 text-red-500 bg-red-500/10 px-2 py-0.5 rounded text-[10px] font-semibold">
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            NON-MANEUVERABLE
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] pl-1">
+        <span className="text-slate-400">Type</span>
+        <span className="text-slate-200 text-right">{type}</span>
+        <span className="text-slate-400">Operator</span>
+        <span className="text-slate-200 text-right">{profile.operator}</span>
+        <span className="text-slate-400">Mass</span>
+        <span className="text-slate-200 text-right">
+          {profile.mass_kg.toLocaleString()} kg
+        </span>
+        <span className="text-slate-400">RCS</span>
+        <span className="text-slate-200 text-right">{profile.rcs_m2.toFixed(2)} m²</span>
+        {maneuverable && profile.delta_v_budget_mps > 0 && (
+          <>
+            <span className="text-slate-400">Fuel used</span>
+            <span className="text-slate-200 text-right">
+              {(profile.fuel_used_pct * 100).toFixed(0)}% ·{" "}
+              <span className="text-cyan-400">
+                {profile.delta_v_remaining_mps.toFixed(1)} m/s left
+              </span>
+            </span>
+            <span className="text-slate-400">Criticality</span>
+            <span className="text-amber-300 text-right uppercase">{profile.mission_criticality}</span>
+          </>
+        )}
       </div>
     </div>
   );

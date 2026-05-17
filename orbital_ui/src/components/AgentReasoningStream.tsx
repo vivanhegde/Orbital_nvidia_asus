@@ -295,20 +295,32 @@ export interface AgentReasoningStreamProps {
    * button that calls this with the target view name.
    */
   onNavigate?: (view: "dashboard" | "approver" | "memory") => void;
+  /**
+   * Optional pre-baked events to show when the live filtered stream is
+   * empty. Used by ConjunctionDetailView to show synthetic reasoning that
+   * matches the synthetic Pc history graph, so the panel never reads as
+   * "the agent has nothing to say about this event".
+   */
+  fallbackEvents?: AgentEvent[];
 }
 
 export function AgentReasoningStream({
   eventId,
   className,
   onNavigate,
+  fallbackEvents,
 }: AgentReasoningStreamProps = {}) {
   const events = useAgentStream();
   const scrollerRef = React.useRef<HTMLDivElement>(null);
 
   const filtered = React.useMemo(() => {
     if (!eventId) return events;
-    return events.filter((ev) => ev.related_event_id === eventId);
-  }, [events, eventId]);
+    const live = events.filter((ev) => ev.related_event_id === eventId);
+    if (live.length === 0 && fallbackEvents && fallbackEvents.length > 0) {
+      return fallbackEvents;
+    }
+    return live;
+  }, [events, eventId, fallbackEvents]);
 
   React.useEffect(() => {
     const el = scrollerRef.current;

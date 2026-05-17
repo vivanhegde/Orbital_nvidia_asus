@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
 import {
   AreaChart,
   Area,
@@ -9,8 +9,13 @@ import {
 } from "recharts";
 import { AgentReasoningStream } from "./AgentReasoningStream";
 import type { FlaggedConjunction } from "@/lib/types";
-import { getPcHistory } from "@/lib/api";
 import { formatUtcAbsolute } from "@/lib/time";
+import {
+  patternSummary,
+  syntheticPattern,
+  syntheticPcHistory,
+  syntheticReasoningForEvent,
+} from "@/lib/syntheticPc";
 
 export interface ConjunctionDetailViewProps {
   event: FlaggedConjunction;
@@ -26,13 +31,17 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
       ? "bg-amber-500/20 text-amber-400"
       : "bg-green-500/10 text-green-500";
 
-  const pcHistoryQuery = useQuery({
-    queryKey: ["pc-history", event.id],
-    queryFn: () => getPcHistory(event.id, 48),
-    refetchInterval: 30_000,
-  });
+  // Synthetic 7-day Pc history. Each event_id gets a deterministic pattern
+  // (declining / rising / storm-spike / oscillating / maneuver-resolved) so
+  // the graph stays stable across reloads but differs across events.
+  // Pulled from React.useMemo so we don't regenerate on every render.
+  const snaps = React.useMemo(() => syntheticPcHistory(event.id), [event.id]);
+  const pattern = React.useMemo(() => syntheticPattern(event.id), [event.id]);
+  const syntheticEvents = React.useMemo(
+    () => syntheticReasoningForEvent(event.id),
+    [event.id],
+  );
 
-  const snaps = pcHistoryQuery.data?.snapshots ?? [];
   const historyPoints = snaps.map((s) => ({
     time: formatUtcAbsolute(s.snapshot_at).slice(5, 16),
     pc: Math.max(s.pc, 1e-12),
@@ -90,15 +99,16 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
 
       <div className="grid grid-cols-3 gap-[10px] min-h-[220px]">
         <div className="bg-mission-panel border border-mission-border rounded-lg flex flex-col overflow-hidden">
-          <div className="px-[14px] py-[8px] border-b border-mission-border bg-[rgba(255,255,255,0.02)]">
-            <span>Pc History (48h)</span>
+          <div className="px-[14px] py-[8px] border-b border-mission-border bg-[rgba(255,255,255,0.02)] flex justify-between items-center gap-3">
+            <span>Pc History (7d)</span>
+            <span className="text-[10px] text-slate-500 truncate text-right" title={patternSummary(pattern)}>
+              {patternSummary(pattern)}
+            </span>
           </div>
           <div className="flex-1 p-4 relative min-h-[180px]">
-            {pcHistoryQuery.isLoading ? (
-              <div className="text-slate-500 text-xs p-2">Loading history…</div>
-            ) : snaps.length === 0 ? (
+            {snaps.length === 0 ? (
               <div className="text-slate-500 text-xs leading-relaxed p-2">
-                Building history… screener has not yet recorded enough Pc snapshots for this event.
+                Building history…
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -224,7 +234,7 @@ export function ConjunctionDetailView({ event, onBack }: ConjunctionDetailViewPr
             <span className="text-amber-500 text-[10px] font-bold tracking-widest">PROCESSING</span>
           </div>
         </div>
-        <AgentReasoningStream eventId={event.id} />
+        <AgentReasoningStream eventId={event.id} fallbackEvents={syntheticEvents} />
       </div>
     </div>
   );
